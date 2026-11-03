@@ -1,4 +1,9 @@
 // src/config owns every tuning value in the game; no magic numbers elsewhere.
+//
+// INITIAL SEED VALUES ONLY. Everything below exists because the skeleton's
+// placeholder scene has to draw something; none of it is balanced or final.
+// Gameplay tasks are expected to replace these and add their own sections here
+// rather than inlining numbers into scenes, beam, enemies or HUD code.
 
 /** Fixed render size. The canvas is scaled to the window, never re-laid out. */
 export const RENDER_WIDTH = 960;
