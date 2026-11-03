@@ -1,0 +1,21 @@
+{
+  "name": "lamplight-vigil",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Single-screen 2D arcade survival: you are the last lamp in a dark hollow.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7"
+  }
+}
