@@ -38,7 +38,13 @@ npm run dev       # Vite dev server with hot reload
 npm run typecheck # tsc --noEmit, strict; must pass
 npm run build     # typecheck + production bundle into dist/
 npm run preview   # serve the built dist/ locally
+npm test          # node:test over src/ and tools/, through tsx
+npm run sim       # deterministic throughput simulation; see docs/throughput-sim.md
 ```
+
+`npm run sim` reads the shipped `src/config` and checks the difficulty curve
+against `docs/design.md` §11.1 and its invariants. It exits non-zero when a retune
+breaks one, and needs no browser. Run it after changing any value in §10.4–§10.7.
 
 `npm ci`, `npm run typecheck` and `npm run build` must all pass before you open a
 pull request, and their output belongs in the PR or the task comment.
@@ -63,6 +69,7 @@ src/enemies/   Creatures: spawning from the edges, movement, freeze and burn sta
 src/hud/       On-screen readouts: lamp power, score, run state messaging.
 src/scenes/    Phaser scenes and their lifecycle wiring.
 src/main.ts    Game boot and Phaser config only. Keep it thin.
+tools/         Developer tooling, not gameplay and not bundled. Nothing in src/ may import it.
 ```
 
 Keep a change inside the folders its task names. Touching another module's
