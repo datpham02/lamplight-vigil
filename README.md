@@ -46,16 +46,49 @@ src/beam/      The player's light: the lamp and the cone it casts
 src/enemies/   Creatures and their freeze/burn states
 src/hud/       On-screen readouts
 src/scenes/    Phaser scenes, and the scene event contract (events.ts)
-src/main.ts    Game boot
+src/host/      The boundary with the host page: mount(), destroy(), pause, input scope
+src/main.ts    One caller of mount()
 ```
 
-The game renders at a fixed 960x540 and is scaled to fit the window
-(`Phaser.Scale.FIT`, centred), so it letterboxes rather than re-laying out. No
-gameplay code reads the browser window size.
+The game renders at a fixed 960x540 and is scaled to fit the element it was
+mounted into (`Phaser.Scale.FIT`, centred), so it letterboxes rather than
+re-laying out. No gameplay code reads the browser window size.
 
 Modules talk to each other over the scene event bus — see
 [`src/scenes/events.ts`](./src/scenes/events.ts) — not by holding references to
 each other's classes.
+
+## Putting the game on a page
+
+The game is a widget, not a page. `mount()` puts one into an element you own and
+hands back a `destroy()` that takes it off again.
+
+```ts
+import { mount } from './src/host/index';
+
+const game = mount({ parent: 'my-container' }); // or an HTMLElement
+game.focus();   // optional: give it the keyboard. mount() never takes it
+game.destroy(); // every listener, timer and audio node comes back off
+```
+
+The container needs a size of its own; the game never sets one, and never
+expands the host's `<body>` to make room. Within it:
+
+- it letterboxes inside the box and never paints outside it;
+- the keyboard is scoped to the container, so a key typed into a field beside
+  the game does not reach it and the game's keys do not reach the field, and a
+  pointer press has to land inside the game's box to count;
+- no AudioContext exists until the first click or keypress on the game;
+- it pauses when the window loses focus or the tab is hidden, and resumes on
+  any key or click — a pause stops the run clock, so it can neither earn score
+  nor cost it (`docs/design.md` §2.5);
+- two mounts on one page are two independent runs, and destroying one leaves
+  the other running.
+
+[`embed.html`](./embed.html) is the harness for checking all of that: two games
+in differently-shaped boxes, next to an ordinary text field, with mount, destroy
+and a mount/destroy stress button. Open `/embed.html` under `npm run dev` or
+`npm run preview`.
 
 ## How to play
 
@@ -98,6 +131,12 @@ shake and a low thump when one reaches the lamp, and three short sound effects �
 the freeze, the burn and the lamp hit. Every sound confirms something already on
 screen, so the game loses no information with the tab muted.
 
+And the host layer above it: `mount()` and `destroy()`, auto-pause when the
+window loses focus or the tab is hidden, input scoped to the game's own
+container, no audio device before the player's first gesture, and the render
+space fitted to that container rather than to the window. See
+[Putting the game on a page](#putting-the-game-on-a-page).
+
 Still to come in the "Playable Vigil" milestone: the test pass.
 
 ## For agents
@@ -119,6 +158,7 @@ An asset with no entry in this table is a blocker, not a detail to fix later.
 | Freeze, banish and lamp-hit sound effects | Waveforms synthesised from the `ToneSpec` values in [`src/config`](./src/config/index.ts) at boot ([`src/scenes/soundSynth.ts`](./src/scenes/soundSynth.ts)) | Original, written for this game | Same as the repository |
 | HUD power meter, overlay scrims, game-over mark | Phaser shape primitives drawn in code ([`src/hud/`](./src/hud/)) | Original, written for this game | Same as the repository |
 | HUD and overlay copy | Written for this game ([`src/hud/strings.ts`](./src/hud/strings.ts)) | Original | Same as the repository |
+| Pause overlay scrim and text | Phaser shape primitives and copy written for this game ([`src/hud/PauseOverlay.ts`](./src/hud/PauseOverlay.ts)) | Original | Same as the repository |
 | HUD typefaces | None bundled. `HUD_FONT_FAMILY` and `HUD_FONT_FAMILY_MONO` in `src/config` name system font stacks (`system-ui`, `Segoe UI`, `ui-monospace`, …) that the browser already has | No font file is downloaded, bundled or committed | n/a |
 
 No binary or third-party art, audio or font files are in the repository, and

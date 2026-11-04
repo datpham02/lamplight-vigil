@@ -150,6 +150,71 @@ teleports toward the lamp in a single frame and the player dies to something the
 never saw move. That is a pillar 2 failure — a death the screen never showed. The
 clamp makes a stalled frame cost the player a slice of time instead of the run.
 
+### 2.5 Suspension — auto-pause when nobody is looking
+
+Closes the `docs/vision.md` §8.6 proposal. **A suspended run is not a fourth
+state.** It is still PLAYING; it has simply stopped advancing, and the state
+machine above is unchanged.
+
+**What suspends it.** The window losing focus (`blur`), or the tab going into the
+background (`visibilitychange` with `document.hidden`). Nothing else. There is no
+pause key: a pause the player can take at will is a way to stop the clock while
+reading the board, and §8's score is time survived.
+
+**What suspension does.** Everything in PLAYING stops, on the same terms as
+§2.3's freeze and then some: no crawler moves or spawns, no power drains or
+recharges, no elapsed time accrues, no score is earned, the lamp's pulse holds,
+and even a fading burst holds. **A pause can therefore neither earn a point nor
+cost one.**
+
+The one thing that still tracks the pointer is the beam's heading, exactly as it
+does under §2.3's freeze: aiming advances no rule, reads no geometry while the
+run is suspended, and a beam that lied about where the mouse was would only
+mislead on the frame the player resumes.
+
+**What ends it.** Any key or any click, exactly as on the title screen. Regaining
+focus is deliberately *not* enough: a run that resumed on the frame the window
+came forward would put a crawler on the lamp before the player's eyes were back
+on the screen, which is the same pillar 2 failure the §2.4 clamp exists to
+prevent — a death the screen never showed.
+
+The input that resumes runs through the §2.2 edge trigger, for the reason given
+there: it is very often the left mouse button, which is also a focus binding.
+Nothing else is reset. Power, beam width and the §4.2 lockout come back exactly
+where the suspension froze them, because a pause gives nothing back.
+
+**It is on screen.** Pillar 2 forbids the game holding a stopped run clock the
+screen never mentions, and a frozen hollow is otherwise indistinguishable from a
+crash. The pause overlay says so in words and says which inputs resume.
+
+**TITLE and GAME_OVER are never suspended.** Neither advances a clock or earns a
+score, so there is nothing to protect, and a title screen that stopped breathing
+until it was clicked would be a worse first impression than the one it fixes.
+
+### 2.6 The game is a widget, not a page
+
+The game mounts into an element the host page owns and can be taken back off it
+again (`src/host`). This is a constraint on the whole of §2, not a feature beside
+it, and it is what §2.5 is built out of.
+
+What it requires of everything above:
+
+- **Nothing global and nothing shared.** Two games on one page are two runs. The
+  `localStorage` best score in §8 is the single deliberate exception: it is the
+  player's, not the instance's.
+- **Input is scoped to the container.** The §7 keyboard bindings only fire when
+  the game has focus, so a key typed into a form beside the game never reaches
+  it, and a key aimed at the game never reaches the form. A pointer press has
+  to land inside the game's box to count — a click on the host's own page is
+  not a run start, not a resume, and not a focus hold.
+- **No audio device before a user gesture.** The §13 cues create their
+  AudioContext inside the first click or keypress on the game and not before.
+- **The render space in §10.1 is fitted to the container, not to the window.**
+  The game letterboxes inside whatever box it is given and never paints outside
+  it.
+- **Teardown is complete and synchronous.** Mounting and destroying repeatedly
+  must leave no listener, timer or audio node behind.
+
 ---
 
 ## 3. The beam
@@ -437,6 +502,11 @@ The complete input surface. Nothing else is read.
 | Hold left mouse button | PLAYING | Identical to the above, including the edge trigger. |
 | `INPUT_RESTART_KEY` | GAME_OVER | Restarts. A press inside `GAME_OVER_INPUT_LOCKOUT` is buffered and fires when it expires (§2.3). |
 | Any key, any click | TITLE | Starts the run. |
+| Any key, any click | PLAYING, suspended | Resumes. Runs through the §2.2 edge trigger (§2.5). |
+
+Every one of these is read from the game's own container, never from the window
+(§2.6). A key pressed while the page's focus is somewhere else is not an input to
+this game.
 
 **Both focus bindings are edge-triggered on entry to PLAYING** — a focus input
 already held when the state is entered is ignored until released and pressed again

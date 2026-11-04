@@ -246,6 +246,18 @@ Recorded so they are not reopened. All three are settled in `docs/concept.md`:
 5. **The passivity risk.** Concept §9 names the pre-agreed pivot if the loop feels
    flat after tuning: beam-rotation inertia, so aiming has weight. The playtest
    gate at the end of task 3 decides whether we take it.
-6. **[PROPOSAL] Auto-pause on window blur.** A browser game loses focus
-   constantly. Proposed for the milestone after Playable Vigil; it touches nothing
-   in the MVP scope above. Sequencing is `producer`'s call.
+6. **Auto-pause on window blur. CLOSED — shipped in GAM-41 (OV-5).** Taken in the
+   Online Vigil milestone, as the proposal asked. The run suspends on `blur` and
+   on the tab being hidden, and stops dead: no time, no spawns, no power, no
+   score. It resumes on any key or click, never on focus returning on its own —
+   a run that restarted the instant the window came forward would kill the
+   player with a crawler they never saw move, which is the pillar 2 failure the
+   `docs/design.md` §2.4 delta clamp already exists to prevent. The paused state
+   is on screen in words, because pillar 2 forbids a stopped run clock the
+   screen does not admit to. Ruled in `docs/design.md` §2.5.
+
+   It arrived with the rest of the host-friendly work rather than alone: a game
+   that can be mounted into someone else's page has to pause when nobody is
+   looking at it, keep its keyboard inside its own container, and not open an
+   audio device before the visitor has touched it. Those are `docs/design.md`
+   §2.6.

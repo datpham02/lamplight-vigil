@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lamplight Vigil — embedding harness</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #06070b;
+        --hollow: #8a93a8;
+        --lamplight: #ffe6b8;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #0e1017;
+        color: var(--hollow);
+        font: 15px/1.5 system-ui, sans-serif;
+      }
+
+      h1 {
+        font-size: 20px;
+        color: var(--lamplight);
+        margin: 0 0 4px;
+      }
+
+      p {
+        margin: 0 0 16px;
+        max-width: 70ch;
+      }
+
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        align-items: flex-start;
+      }
+
+      .panel {
+        border: 1px solid #2a2f3d;
+        padding: 12px;
+      }
+
+      /* Deliberately different shapes, and both smaller than the window, so
+         FIT has to letterbox on a different axis in each one. The checked
+         background shows instantly if the canvas paints outside its box. */
+      .stage {
+        background-image: linear-gradient(45deg, #1b1f2b 25%, transparent 25%),
+          linear-gradient(-45deg, #1b1f2b 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #1b1f2b 75%),
+          linear-gradient(-45deg, transparent 75%, #1b1f2b 75%);
+        background-size: 16px 16px;
+        background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      }
+
+      /* 13:6, wider than the game's 16:9, so FIT has to leave bars at the
+         sides. #stage-tall is taller than 16:9, so it leaves them top and
+         bottom. Between them the two axes are both covered. */
+      #stage-wide {
+        width: 520px;
+        height: 240px;
+      }
+
+      #stage-tall {
+        width: 300px;
+        height: 420px;
+      }
+
+      button {
+        font: inherit;
+        padding: 4px 10px;
+        margin-right: 6px;
+      }
+
+      input[type='text'] {
+        font: inherit;
+        padding: 6px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      code {
+        color: var(--lamplight);
+      }
+
+      .readout {
+        margin-top: 12px;
+        white-space: pre-wrap;
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+      }
+
+      ol {
+        max-width: 70ch;
+        padding-left: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Lamplight Vigil — embedding harness</h1>
+    <p>
+      Not the game. This page exists so the GAM-41 acceptance criteria can be
+      checked by hand: two games on one page, in containers smaller than the
+      window, next to an ordinary text field. Nothing here is imported by the
+      game — it only calls <code>mount()</code>.
+    </p>
+
+    <ol>
+      <li>Mount both. Destroy one: the other keeps running.</li>
+      <li>
+        Click in the text field and type <code>r</code> and
+        <code>shift</code>: neither game reacts. Click a game and type: the
+        text field stays empty.
+      </li>
+      <li>
+        <em>AudioContexts created</em> stays at 0 until you first click or press
+        a key inside a game.
+      </li>
+      <li>
+        Each game letterboxes inside its box and never paints onto the checked
+        background.
+      </li>
+      <li>
+        Start a run, click away to another window, come back: the clock has not
+        moved and the game says so.
+      </li>
+      <li>
+        <em>Mount/destroy ×20</em> then take a heap snapshot — listeners, timers
+        and audio nodes must not grow.
+      </li>
+    </ol>
+
+    <div class="row">
+      <div class="panel">
+        <div><strong>Game A</strong> — 520 × 240, bars at the sides</div>
+        <div id="stage-wide" class="stage"></div>
+        <div style="margin-top: 8px">
+          <button data-mount="wide">Mount</button>
+          <button data-destroy="wide">Destroy</button>
+          <button data-cycle="wide">Mount/destroy ×20</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div><strong>Game B</strong> — 300 × 420, bars top and bottom</div>
+        <div id="stage-tall" class="stage"></div>
+        <div style="margin-top: 8px">
+          <button data-mount="tall">Mount</button>
+          <button data-destroy="tall">Destroy</button>
+          <button data-cycle="tall">Mount/destroy ×20</button>
+        </div>
+      </div>
+
+      <div class="panel" style="flex: 1; min-width: 260px">
+        <label for="beside">A focusable element beside the game</label>
+        <input id="beside" type="text" placeholder="type here — no key should reach a game" />
+        <div class="readout" id="readout"></div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { mount } from '/src/host/index.ts';
+
+      // Counting the constructor is the only honest way to check "no audio
+      // context is created before the first user gesture": it catches a
+      // context made anywhere, by us or by Phaser.
+      let contextsCreated = 0;
+      const RealAudioContext = window.AudioContext;
+      if (RealAudioContext) {
+        window.AudioContext = class CountingAudioContext extends RealAudioContext {
+          constructor(...args) {
+            super(...args);
+            contextsCreated += 1;
+            report();
+          }
+        };
+      }
+
+      const games = { wide: null, tall: null };
+      let cycles = 0;
+
+      const readout = document.getElementById('readout');
+
+      function report() {
+        readout.textContent = [
+          `Game A:  ${games.wide === null ? 'not mounted' : 'mounted'}`,
+          `Game B:  ${games.tall === null ? 'not mounted' : 'mounted'}`,
+          `AudioContexts created: ${contextsCreated}`,
+          `Mount/destroy cycles:  ${cycles}`,
+        ].join('\n');
+      }
+
+      const parents = { wide: 'stage-wide', tall: 'stage-tall' };
+
+      function mountGame(which) {
+        if (games[which] !== null) {
+          return;
+        }
+        games[which] = mount({ parent: parents[which] });
+        report();
+      }
+
+      function destroyGame(which) {
+        games[which]?.destroy();
+        games[which] = null;
+        report();
+      }
+
+      for (const button of document.querySelectorAll('[data-mount]')) {
+        button.addEventListener('click', () => mountGame(button.dataset.mount));
+      }
+
+      for (const button of document.querySelectorAll('[data-destroy]')) {
+        button.addEventListener('click', () => destroyGame(button.dataset.destroy));
+      }
+
+      for (const button of document.querySelectorAll('[data-cycle]')) {
+        button.addEventListener('click', () => {
+          const which = button.dataset.cycle;
+          destroyGame(which);
+          for (let i = 0; i < 20; i += 1) {
+            mountGame(which);
+            destroyGame(which);
+            cycles += 1;
+          }
+          report();
+        });
+      }
+
+      report();
+    </script>
+  </body>
+</html>

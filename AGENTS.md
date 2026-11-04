@@ -55,10 +55,30 @@ same commit.
 
 ## Rendering model
 
-The game renders at a fixed **960 x 540** and is scaled to fit the window
-(`Phaser.Scale.FIT`, centred). Every gameplay coordinate is in that render space.
-Never read `window.innerWidth`/`innerHeight` in gameplay code, and never assume a
-layout that depends on the browser window size.
+The game renders at a fixed **960 x 540** and is scaled to fit **the element it
+was mounted into** (`Phaser.Scale.FIT`, centred), which is not the window. Every
+gameplay coordinate is in that render space. Never read
+`window.innerWidth`/`innerHeight` in gameplay code, and never assume a layout
+that depends on the browser window size — or on the game owning the page.
+
+## The game is a widget
+
+`mount()` in `src/host` puts the game into an element a host page owns, and
+`destroy()` takes it back off. `src/main.ts` is one caller of it; so is anyone
+embedding the game. `docs/design.md` §2.6 is the ruling, and it constrains every
+module:
+
+- No module-level state and nothing global. Two mounted games are two runs.
+- Input is scoped to the container, never to `window`: keys only when the game
+  has focus, pointer presses only when they land inside its box.
+- Nothing audio-shaped exists before the first user gesture on the game.
+- Every listener, timer and audio node a mount creates must come off on
+  `destroy()`. If it cannot wait for Phaser's deferred teardown, register it
+  with `HostContext.addDisposable`.
+- Never focus, size, restyle or scroll anything outside the container.
+
+`embed.html` is the harness for checking all of that by hand: two games on one
+page, in differently-shaped boxes, beside an ordinary text field.
 
 ## Folder ownership
 
@@ -68,7 +88,8 @@ src/beam/      The player's light: aiming, width control, power drain.
 src/enemies/   Creatures: spawning from the edges, movement, freeze and burn states.
 src/hud/       On-screen readouts: lamp power, score, run state messaging.
 src/scenes/    Phaser scenes and their lifecycle wiring.
-src/main.ts    Game boot and Phaser config only. Keep it thin.
+src/host/      The boundary with the host page: mount, destroy, pause, input scope, the Phaser config.
+src/main.ts    One caller of src/host's mount(). Keep it thin.
 tools/         Developer tooling, not gameplay and not bundled. Nothing in src/ may import it.
 ```
 
