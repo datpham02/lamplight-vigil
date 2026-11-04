@@ -909,3 +909,355 @@ export const RESTART_BUDGET_SECONDS = 1.0;
  * worst-case arithmetic in `restartClock.ts`.
  */
 export const RESTART_BUDGET_FRAMES = 2;
+
+// ---------------------------------------------------------------------------
+// §14 Weekly seed and the modifier table — Online Vigil
+// ---------------------------------------------------------------------------
+//
+// `docs/design.md` §14, owned by `game-designer`, approved by `game-director`
+// before OV-2 started. §14.1 rule 4 is why it is here rather than in a gameplay
+// module: **the table is data**, under the same §10 editing rules as every other
+// value in this file, and not a module of gameplay code with a switch in it.
+//
+// The pure functions that read it — the week key, the seed, the eight-week block
+// schedule and the override layer — are in `src/weekly`. Nothing in this section
+// reads a clock, and nothing here touches the network: a week resolves from the
+// device clock and this file alone (§14 preamble; the provider decision D4 is
+// still pending with the Board and is named nowhere).
+
+/**
+ * §14.2 — Monday 5 January 2026, the Monday of `2026-W02`, and the origin
+ * `weekIndex` counts whole weeks from.
+ *
+ * It is in the past so no shipped build ever computes a negative index, and it
+ * is a Monday so that `weekIndex` is exact rather than rounded.
+ */
+export const WEEKLY_EPOCH_UTC_MS = Date.UTC(2026, 0, 5);
+
+/**
+ * The single named offset the weekly reset is anchored to, in hours ahead of
+ * UTC. `0` is the value `docs/design.md` §14.2 specifies and derives all nine of
+ * its published week-key vectors (criterion 18) and the ten-week schedule vector
+ * (criterion 22) at: the week begins **Monday 00:00:00 UTC** and runs 7 days.
+ *
+ * It is a named constant rather than a literal `0` because GAM-16 decision D6
+ * is recorded in the GAM-38 task as "the UTC+7 offset as one named constant",
+ * which §14.2 does not reflect — it argues for UTC explicitly, on the grounds
+ * that a board mixing two week boundaries is a fairness bug that only appears at
+ * the edges of a week. The two cannot both be satisfied by a value: at `7` the
+ * week flips at Sunday 17:00 UTC and every published vector in §14.2 and §14.4
+ * moves. So the offset is isolated here, the week-key function is pure in it,
+ * and changing the published schedule is a one-line decision for
+ * `game-designer` and `game-director` rather than an implementation detail.
+ * Raised on the task; see the PR.
+ *
+ * Changing it reshuffles nothing — the block schedule is seeded from the week
+ * key, so a different boundary moves which instants belong to which week, not
+ * which entry a given week key resolves to.
+ */
+export const WEEK_RESET_UTC_OFFSET_HOURS = 0;
+
+/**
+ * §14.3 — the prefix of every seed string, with the trailing `1` a **schedule
+ * version**. Bumping it reshuffles every week from that build onward and is the
+ * only sanctioned way to reshuffle the schedule deliberately; it is a design
+ * decision needing `game-director` approval, exactly like a table entry.
+ */
+export const WEEKLY_SEED_NAMESPACE = 'lamplight-vigil/weekly/1';
+
+/**
+ * §14.5 — the seven constants above that a weekly modifier may touch. The union
+ * is the closed list: a value that is not one of these cannot be the subject of
+ * a table entry, and the sweep's W2 assertion checks the resolved cell changed
+ * this constant and nothing else.
+ */
+export type WeeklyModifierConstant =
+  | 'SPAWN_INTERVAL_START'
+  | 'CRAWLER_SPEED_BASE'
+  | 'BURN_DWELL_TIME'
+  | 'POWER_RECHARGE_RATE'
+  | 'POWER_DRAIN_RATE'
+  | 'BEAM_WIDE_ANGLE_DEG'
+  | 'SPAWN_EDGE_WEIGHTS';
+
+/**
+ * One cell of the table: the complete, finite set a week can resolve to (§14.1
+ * rule 3). `headline` and `effect` are the plain words criterion 27 requires on
+ * the title and game-over screens — they are per *value*, not per entry, because
+ * the two directions of an entry read as different weeks to a player.
+ */
+interface WeeklyModifierValueBase {
+  /** Stable within an entry. Recorded with a submitted score (§14.4). */
+  readonly id: string;
+  /** `docs/design.md` §14.5 "On screen", first sentence. */
+  readonly headline: string;
+  /** §14.5 "On screen", second sentence. */
+  readonly effect: string;
+}
+
+/** A multiply of the named constant by a literal. §14.5 "Floating point". */
+export interface WeeklyMultiplierValue extends WeeklyModifierValueBase {
+  readonly kind: 'multiplier';
+  readonly multiplier: number;
+}
+
+/** The whole-record override `one-axis` needs. Both values sum to 1 (B7). */
+export interface WeeklyEdgeWeightsValue extends WeeklyModifierValueBase {
+  readonly kind: 'edge-weights';
+  readonly weights: Readonly<Record<SpawnEdge, number>>;
+}
+
+export type WeeklyModifierValue = WeeklyMultiplierValue | WeeklyEdgeWeightsValue;
+
+/** One row of §14.5. One entry touches exactly one constant (§14.1 rule 2). */
+export interface WeeklyModifier {
+  /** Stable. Renaming one changes every permutation after it (§14.4). */
+  readonly id: string;
+  readonly constant: WeeklyModifierConstant;
+  readonly values: readonly WeeklyModifierValue[];
+}
+
+/**
+ * §14.5 — the closed table. **Eight entries, fifteen cells.** Every value here
+ * is the complete set a week can resolve to; there is nothing between them, and
+ * that is what lets `npm run sim -- --modifiers` enumerate every week the game
+ * will ever generate before any of them happens (§14.1 rule 3, §14.9).
+ *
+ * `plain` is a ×1.00 multiplier rather than a special case, so the schedule, the
+ * submission payload and the sweep have no "no modifier" branch to get wrong.
+ *
+ * **Value order is load-bearing.** A week picks its cell by
+ * `fnv1a32(...) % values.length` (§14.4), so reordering a `values` array
+ * silently re-resolves published weeks. The order below is §14.5's, column
+ * "Values", left to right.
+ *
+ * **Editing this table changes history** (§14.4): adding, removing or renaming
+ * an entry changes `N` and every permutation after it. Land an edit at a block
+ * boundary, `weekIndex % N === 0`, and remember that a submitted score records
+ * the `id` and value it was played under rather than recomputing them.
+ */
+export const WEEKLY_MODIFIERS: readonly WeeklyModifier[] = [
+  {
+    id: 'plain',
+    constant: 'SPAWN_INTERVAL_START',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x1.00',
+        headline: 'A plain vigil.',
+        effect: 'The hollow as it is.',
+        multiplier: 1.0,
+      },
+    ],
+  },
+  {
+    id: 'restless-hollow',
+    constant: 'CRAWLER_SPEED_BASE',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x0.90',
+        headline: 'A restless hollow.',
+        effect: 'The crawl is slower this week.',
+        multiplier: 0.9,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x1.10',
+        headline: 'A restless hollow.',
+        effect: 'The crawl is quicker this week.',
+        multiplier: 1.1,
+      },
+    ],
+  },
+  {
+    id: 'clinging-dark',
+    constant: 'BURN_DWELL_TIME',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x1.15',
+        headline: 'The dark clings.',
+        effect: 'Burning one takes longer.',
+        multiplier: 1.15,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x1.30',
+        headline: 'The dark clings.',
+        effect: 'Burning one takes longer.',
+        multiplier: 1.3,
+      },
+    ],
+  },
+  {
+    id: 'thin-wick',
+    constant: 'POWER_RECHARGE_RATE',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x0.90',
+        headline: 'A thin wick.',
+        effect: 'The lamp recovers slowly.',
+        multiplier: 0.9,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x0.85',
+        headline: 'A thin wick.',
+        effect: 'The lamp recovers slowly.',
+        multiplier: 0.85,
+      },
+    ],
+  },
+  {
+    id: 'hungry-flame',
+    constant: 'POWER_DRAIN_RATE',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x1.10',
+        headline: 'A hungry flame.',
+        effect: 'Focusing costs more.',
+        multiplier: 1.1,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x1.20',
+        headline: 'A hungry flame.',
+        effect: 'Focusing costs more.',
+        multiplier: 1.2,
+      },
+    ],
+  },
+  {
+    id: 'crowded-threshold',
+    constant: 'SPAWN_INTERVAL_START',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x0.94',
+        headline: 'A crowded threshold.',
+        effect: 'They come sooner at first.',
+        multiplier: 0.94,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x1.06',
+        headline: 'A quiet threshold.',
+        effect: 'They come later at first.',
+        multiplier: 1.06,
+      },
+    ],
+  },
+  {
+    id: 'narrow-lantern',
+    constant: 'BEAM_WIDE_ANGLE_DEG',
+    values: [
+      {
+        kind: 'multiplier',
+        id: 'x0.85',
+        headline: 'A narrow lantern.',
+        effect: 'The wide beam holds less of the field.',
+        multiplier: 0.85,
+      },
+      {
+        kind: 'multiplier',
+        id: 'x1.15',
+        headline: 'A broad lantern.',
+        effect: 'The wide beam holds more of the field.',
+        multiplier: 1.15,
+      },
+    ],
+  },
+  {
+    id: 'one-axis',
+    constant: 'SPAWN_EDGE_WEIGHTS',
+    values: [
+      {
+        kind: 'edge-weights',
+        id: 'long-dark',
+        headline: 'The long dark.',
+        effect: 'They come from the sides.',
+        weights: { top: 0.05, bottom: 0.05, left: 0.45, right: 0.45 },
+      },
+      {
+        kind: 'edge-weights',
+        id: 'over-the-top',
+        headline: 'Over the top.',
+        effect: 'They come from above and below.',
+        weights: { top: 0.4, bottom: 0.4, left: 0.1, right: 0.1 },
+      },
+    ],
+  },
+];
+
+/**
+ * §10 safe ranges for the seven constants a modifier may touch, so sweep
+ * assertion W1 — "a week can never put the game somewhere a designer could not
+ * have tuned it by hand" (criterion 23) — reads the same numbers the tuning
+ * table states rather than a second copy of them written out in `tools/`.
+ *
+ * `SPAWN_EDGE_WEIGHTS` has no numeric range: §10.7 bounds it as "any set
+ * summing to 1", which is assertion B7 and is already checked per cell.
+ */
+export const WEEKLY_MODIFIER_SAFE_RANGES: Readonly<
+  Partial<Record<WeeklyModifierConstant, { readonly min: number; readonly max: number }>>
+> = {
+  SPAWN_INTERVAL_START: { min: 2.5, max: 6.0 }, // §10.7
+  CRAWLER_SPEED_BASE: { min: 35, max: 75 }, // §10.5
+  BURN_DWELL_TIME: { min: 0.25, max: 0.8 }, // §10.6
+  POWER_RECHARGE_RATE: { min: 10, max: 28 }, // §10.4
+  POWER_DRAIN_RATE: { min: 16, max: 40 }, // §10.4
+  BEAM_WIDE_ANGLE_DEG: { min: 50, max: 95 }, // §10.3
+};
+
+/**
+ * The tuning surface a run is played at: every value the §5.4 curves, the spawn
+ * rules and the `tools/throughput-sim.ts` model read, and therefore the only
+ * surface a weekly modifier or the sweep can move.
+ *
+ * It is **built from the constants above, never re-declared** — the rule
+ * `docs/throughput-sim.md` §2 protects. Keys are the constant names so that the
+ * §14.5 "Constant" column is literally the key, and "this cell changed that
+ * constant only" (W2) is a key comparison rather than a judgement.
+ *
+ * Free Play and every unmodified run use this object exactly as committed
+ * (§14.8), so the base config stays one object rather than a copy that can
+ * drift.
+ */
+export const SHIPPED_RUN_CONFIG = {
+  SPAWN_INTERVAL_START,
+  SPAWN_INTERVAL_MIN,
+  SPAWN_INTERVAL_DECAY_PER_SECOND,
+  SPAWN_EDGE_WEIGHTS,
+  CRAWLER_SPEED_BASE,
+  CRAWLER_SPEED_MAX,
+  CRAWLER_SPEED_RAMP_PER_SECOND,
+  CRAWLER_SPEED_JITTER,
+  BURN_DWELL_TIME,
+  BEAM_TRANSITION_TIME,
+  BEAM_WIDE_ANGLE_DEG,
+  /** Derived. §14.5: a modifier on `BEAM_WIDE_ANGLE_DEG` must move this too. */
+  BEAM_WIDE_HALF_ANGLE_RAD,
+  POWER_DRAIN_RATE,
+  POWER_RECHARGE_RATE,
+};
+
+/** The shape of {@link SHIPPED_RUN_CONFIG}; see it for what this is for. */
+export type RunConfig = Readonly<typeof SHIPPED_RUN_CONFIG>;
+
+/**
+ * `BEAM_WIDE_ANGLE_DEG` is the only entry in the table other exports are derived
+ * from (§14.5). Applying a modifier to the degree value and leaving the radian
+ * half-angle behind is a freeze that happens outside the drawn cone — a pillar 2
+ * failure — so the derivation is named once, here, and re-run by the override
+ * layer rather than copied into it.
+ */
+export const widenedBeamConfig = (fullAngleDeg: number): Pick<
+  RunConfig,
+  'BEAM_WIDE_ANGLE_DEG' | 'BEAM_WIDE_HALF_ANGLE_RAD'
+> => ({
+  BEAM_WIDE_ANGLE_DEG: fullAngleDeg,
+  BEAM_WIDE_HALF_ANGLE_RAD: degToRad(fullAngleDeg) / 2,
+});
