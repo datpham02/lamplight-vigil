@@ -33,6 +33,7 @@ import {
   HUD_LABEL_SIZE,
   HUD_LEFT_X,
   HUD_LINE_HEIGHT_RATIO,
+  HUD_NEXT_SPAWN_Y,
   HUD_NOTE_SIZE,
   HUD_POWER_LABEL_Y,
   HUD_POWER_METER_HEIGHT,
@@ -234,6 +235,10 @@ export const PLAY_HUD_BOXES: readonly CornerBox[] = [
   {
     corner: 'bottom-right',
     box: cornerLine('banished value', 'bottom-right', HUD_BANISHED_VALUE_Y, HUD_VALUE_SIZE),
+  },
+  {
+    corner: 'bottom-right',
+    box: cornerLine('spawn countdown', 'bottom-right', HUD_NEXT_SPAWN_Y, HUD_NOTE_SIZE),
   },
   { corner: 'bottom-right', box: cornerLine('spawn ramp', 'bottom-right', HUD_SURGE_Y, HUD_NOTE_SIZE) },
 ];

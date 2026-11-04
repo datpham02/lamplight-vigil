@@ -25,6 +25,7 @@ import {
   HUD_LABEL_SIZE,
   HUD_LABEL_TRACKING,
   HUD_LEFT_X,
+  HUD_NEXT_SPAWN_Y,
   HUD_NOTE_SIZE,
   HUD_POWER_LABEL_Y,
   HUD_POWER_METER_WIDTH,
@@ -34,7 +35,6 @@ import {
   HUD_SCORE_SIZE,
   HUD_SCORE_VALUE_Y,
   HUD_STATUS_SIZE,
-  HUD_SURGE_DECIMALS,
   HUD_SURGE_Y,
   HUD_TEXT_DIM,
   HUD_TEXT_PRIMARY,
@@ -43,10 +43,10 @@ import {
   HUD_TIME_VALUE_Y,
   HUD_VALUE_SIZE,
 } from '../config/index';
-import { spawnInterval } from '../enemies/index';
 import { BEAM_STATE, type BeamState, type PowerPayload, type ScorePayload } from '../scenes/events';
 import { PowerMeter, type PowerMood } from './PowerMeter';
-import { formatCount, formatRunTime, formatSeconds } from './layout';
+import { formatCount } from './layout';
+import { scoreReadouts } from './readouts';
 import * as strings from './strings';
 import { hudText, setTextIfChanged } from './text';
 
@@ -76,6 +76,7 @@ export class PlayHud {
   private readonly bestValue: Phaser.GameObjects.Text;
   private readonly timeValue: Phaser.GameObjects.Text;
   private readonly banishedValue: Phaser.GameObjects.Text;
+  private readonly nextSpawn: Phaser.GameObjects.Text;
   private readonly surge: Phaser.GameObjects.Text;
 
   private drawnMood: PowerMood | null = null;
@@ -125,6 +126,14 @@ export class PlayHud {
       strings.LABEL_BANISHED,
     );
     this.banishedValue = value(scene, HUD_RIGHT_X, HUD_BANISHED_VALUE_Y, 'right', HUD_VALUE_SIZE);
+    this.nextSpawn = hudText(scene, {
+      x: HUD_RIGHT_X,
+      y: HUD_NEXT_SPAWN_Y,
+      content: '',
+      size: HUD_NOTE_SIZE,
+      color: HUD_TEXT_PRIMARY,
+      align: 'right',
+    });
     this.surge = hudText(scene, {
       x: HUD_RIGHT_X,
       y: HUD_SURGE_Y,
@@ -146,6 +155,7 @@ export class PlayHud {
       this.timeValue,
       banishedLabel,
       this.banishedValue,
+      this.nextSpawn,
       this.surge,
     ]);
     this.container.setDepth(HUD_DEPTH);
@@ -174,20 +184,22 @@ export class PlayHud {
     }
   }
 
-  /** Score, best score, time survived, banishments, and the §5.4 spawn ramp. */
+  /**
+   * Score, best score, time survived, banishments, and the spawn clock: both
+   * the countdown the spawner is holding and the §5.4 interval it resets to.
+   *
+   * What to show is decided in `readouts.ts`, which has no Phaser in it and so
+   * can be asserted on; this method only puts the result on screen.
+   */
   public showScore(payload: ScorePayload): void {
-    setTextIfChanged(this.scoreValue, formatCount(payload.score));
-    setTextIfChanged(this.bestValue, strings.bestScoreLine(formatCount(payload.bestScore)));
-    setTextIfChanged(this.timeValue, formatRunTime(payload.elapsedSeconds));
-    setTextIfChanged(this.banishedValue, formatCount(payload.banished));
+    const readouts = scoreReadouts(payload);
 
-    // Pillar 2 forbids state the screen never shows, and the spawn interval is
-    // state the game holds. `spawnInterval` is the ramp's own pure export, so
-    // the readout cannot drift from the spawner it describes.
-    setTextIfChanged(
-      this.surge,
-      strings.surgeLine(formatSeconds(spawnInterval(payload.elapsedSeconds), HUD_SURGE_DECIMALS)),
-    );
+    setTextIfChanged(this.scoreValue, readouts.score);
+    setTextIfChanged(this.bestValue, readouts.best);
+    setTextIfChanged(this.timeValue, readouts.time);
+    setTextIfChanged(this.banishedValue, readouts.banished);
+    setTextIfChanged(this.nextSpawn, readouts.nextSpawn);
+    setTextIfChanged(this.surge, readouts.surge);
   }
 }
 

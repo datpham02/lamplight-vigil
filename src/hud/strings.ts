@@ -40,8 +40,17 @@ export const LABEL_BANISHED = 'BANISHED';
 /** Prefixes the best score wherever it appears, so it reads the same on all three screens. */
 export const bestScoreLine = (best: string): string => `BEST ${best}`;
 
+/**
+ * The countdown the spawner is holding, printed. `seconds` is already formatted.
+ *
+ * Worded as time remaining, not as a bare figure, because this row sits
+ * directly above `surgeLine` and the two numbers are in the same unit: without
+ * the words, `2.4` over `3.1` is a puzzle rather than a readout.
+ */
+export const nextSpawnLine = (seconds: string): string => `NEXT CRAWLER IN ${seconds} S`;
+
 /** The spawn ramp, printed. `seconds` is already formatted. */
-export const surgeLine = (seconds: string): string => `A CRAWLER EVERY ${seconds} S`;
+export const surgeLine = (seconds: string): string => `ARRIVING EVERY ${seconds} S`;
 
 /**
  * The status line under the power meter. These three strings are where a

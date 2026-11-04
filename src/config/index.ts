@@ -500,19 +500,31 @@ export const HUD_BEST_Y = 94;
 
 // --- Bottom-left cluster: time survived ------------------------------------
 
-export const HUD_TIME_LABEL_Y = 440;
-export const HUD_TIME_VALUE_Y = 462;
+/**
+ * The two bottom clusters share these rows so their labels and figures sit on
+ * the same baselines across the foot of the frame.
+ */
+export const HUD_TIME_LABEL_Y = 424;
+export const HUD_TIME_VALUE_Y = 446;
 
-// --- Bottom-right cluster: banishments, and the spawn ramp -----------------
+// --- Bottom-right cluster: banishments, and the spawn clock ----------------
 
-export const HUD_BANISHED_LABEL_Y = 440;
-export const HUD_BANISHED_VALUE_Y = 462;
+export const HUD_BANISHED_LABEL_Y = 424;
+export const HUD_BANISHED_VALUE_Y = 446;
 
 /**
- * The spawn interval is state the game holds and pillar 2 forbids hiding, so
- * the current value of the §5.4 ramp is printed under the banishment count.
+ * The spawn clock, in two lines under the banishment count.
+ *
+ * `HUD_NEXT_SPAWN_Y` is the countdown `src/enemies` is actually holding — the
+ * timer pillar 2 forbids hiding, and the one the player acts on, because it is
+ * what says whether there is time to hold a burn. `HUD_SURGE_Y` is the §5.4
+ * interval that countdown is reset to, which is the difficulty ramp rather than
+ * a clock. Both are state the game holds, so both are printed; they are
+ * separate rows because they answer different questions.
  */
-export const HUD_SURGE_Y = 496;
+export const HUD_NEXT_SPAWN_Y = 478;
+export const HUD_NEXT_SPAWN_DECIMALS = 1;
+export const HUD_SURGE_Y = 498;
 export const HUD_SURGE_DECIMALS = 1;
 
 // --- Title screen -----------------------------------------------------------

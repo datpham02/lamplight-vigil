@@ -78,6 +78,16 @@ describe('HUD placement (vision.md §6 criterion 7)', () => {
     }
   });
 
+  it('gives the spawn countdown a row of its own, not a share of the ramp’s', () => {
+    // Pillar 2: the countdown `CrawlerField` holds and the §5.4 interval it is
+    // reset to are two different pieces of state, so they get two rows. The
+    // non-overlap proof above then applies to them like any other pair.
+    const names = PLAY_HUD_BOXES.map((entry) => entry.box.name);
+
+    assert.ok(names.includes('spawn countdown'), 'the held countdown is on screen');
+    assert.ok(names.includes('spawn ramp'), 'so is the interval it is reset to');
+  });
+
   it('puts the four play-HUD clusters in four different corners', () => {
     const corners = new Set(PLAY_HUD_BOXES.map((entry) => entry.corner));
     assert.equal(corners.size, 4, 'readouts sit in the corners, which crawlers walk away from');

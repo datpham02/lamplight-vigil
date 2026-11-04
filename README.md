@@ -76,7 +76,7 @@ away from rather than into.
 | Top left | Lamp power, as a bar and a figure, plus a line naming what the beam is doing for it. The tick across the track is the level focus comes back at after the meter bottoms out |
 | Top right | This run's score, and the best score it is chasing |
 | Bottom left | Time survived |
-| Bottom right | Crawlers banished, and how often one is arriving now |
+| Bottom right | Crawlers banished, how long until the next one arrives, and how far apart they are arriving now |
 
 The power bar is lamplight while the power is banked, ember while a focused beam
 is spending it, and grey while focus is locked out and recharging to the tick.

@@ -276,6 +276,7 @@ export class VigilScene extends Phaser.Scene {
       banished: this.banished,
       elapsedSeconds: this.elapsedSeconds,
       bestScore: this.bestScore,
+      nextSpawnIn: this.field.secondsToNextSpawn,
     };
     this.events.emit(VIGIL_EVENTS.SCORE_CHANGED, payload);
   }
