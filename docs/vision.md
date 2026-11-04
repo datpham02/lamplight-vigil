@@ -296,15 +296,32 @@ A failure here is a scope breach and is filed against the milestone.
 | B11 | Share line is copyable text | The share action yields plain text the tester can paste into a text editor unchanged. It is text, not an image, and it opens no third-party dialog. |
 | B12 | Website-readiness contract | The game mounts into a host-supplied element via `mount()`, releases every timer, listener and audio handle on `destroy()`, and can be mounted again afterwards in the same page without error. A game manifest is present and parses. |
 | B13 | Pillars still hold | §3's three pillar QA checks still pass on the Online Vigil build. The weekly seed, the board and the identity add no input that aims, shapes, or substitutes for the beam. |
+| B14 | Restart stays instant on a degraded network | With the connection throttled to a slow profile, and again with the backend responding but delayed past the configured timeout, press R from game over: the first playable frame still arrives in ≤ 1.0 s, with no intermediate screen and no wait on a score submission or board fetch. Pending network work never sits on the restart path. (§6 criterion 1, pillar 3.) |
+| B15 | Game over stays legible with the board on it | With the weekly board present and populated, a tester who has just died still names what killed them within one second of the game-over screen appearing. The board must not be the first thing that takes their eye. (§6 criterion 6, pillar 2.) |
 
 **Note on B1.** This check expires when the Board decides D4. It is a gate on
 the pending decision, not a permanent rule.
+
+**Note on B14 and B15.** These two are pillar checks, not scope checks. The
+amendment puts the weekly board, a score submission and a personal best onto the
+**game-over screen** — the same screen §6 criteria 1 and 6 are measured on — so
+they are tested here under the conditions the amendment creates rather than left
+to B13's general pass. B3 is not a substitute for B14: a disabled network and an
+unreachable backend both fail fast, while a backend that is alive and slow is the
+realistic way the restart path breaks. A failure in either is a **pillar
+failure**, filed as such, not a scope breach.
 
 **Note on 5b.1 item 2.** Until the weekly modifier clears its GAM-16 bounds, QA
 has nothing to test for it and should not write criteria against it. It has no
 boundary check above by design.
 
 ## 6. Success criteria — "Playable Vigil"
+
+**This milestone has shipped** (`v0.1.0`). Like §5, this section is kept as the
+record of what Playable Vigil had to meet. The criteria do not expire with the
+milestone: criteria 1 and 6 are pillar measures, and
+[§5b.3](#5b3-boundary-acceptance-criteria) B14 and B15 re-test them under the
+conditions "Online Vigil" creates.
 
 QA can test each of these directly.
 
@@ -366,3 +383,7 @@ Recorded so they are not reopened. All three are settled in `docs/concept.md`:
 6. **[PROPOSAL] Auto-pause on window blur.** A browser game loses focus
    constantly. Proposed for the milestone after Playable Vigil; it touches nothing
    in the MVP scope above. Sequencing is `producer`'s call.
+   **Not taken into "Online Vigil" (2026-11-04).** The milestone after Playable
+   Vigil now has a name and a closed in-list ([§5b.1](#5b1-in)), and auto-pause is
+   not on it. It stays an open proposal for a later milestone; sequencing remains
+   `producer`'s call.
