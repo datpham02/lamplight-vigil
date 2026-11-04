@@ -22,6 +22,8 @@ import {
   SPAWN_INTERVAL_MIN,
   SPAWN_INTERVAL_START,
 } from '../config/index';
+import { BASE_TUNING } from '../config/tuning';
+import { freePlayRun, seededUnitRandom, weeklyRunAt } from '../weekly/index';
 import { CrawlerField, rampedSpeed, spawnInterval, type BeamLight } from './CrawlerField';
 
 const FRAME = 1 / 60;
@@ -60,6 +62,45 @@ function run(field: CrawlerField, seconds: number, beam: BeamLight): void {
     elapsed += FRAME;
     field.step(FRAME, elapsed, beam);
   }
+}
+
+/**
+ * Everything one run of the field did, as text: every freeze, banish and lamp
+ * hit with the frame it happened on and the point it happened at, then the
+ * field it finished with, each crawler's position and bearing.
+ *
+ * Text rather than a structure so that a failure prints the first line that
+ * differs instead of a diff of six hundred objects, and so that "identical
+ * spawn sequence" is one equality rather than a list of properties someone has
+ * to remember to add to.
+ */
+function transcribe(field: CrawlerField, seconds: number, beam: BeamLight): string {
+  const at = (point: { readonly x: number; readonly y: number }): string =>
+    `${point.x.toFixed(6)},${point.y.toFixed(6)}`;
+  const frames = Math.ceil(seconds / FRAME);
+  const lines: string[] = [];
+  let elapsed = 0;
+
+  for (let i = 0; i < frames; i += 1) {
+    elapsed += FRAME;
+    const step = field.step(FRAME, elapsed, beam);
+
+    for (const point of step.froze) {
+      lines.push(`${i} froze ${at(point)}`);
+    }
+    for (const point of step.banished) {
+      lines.push(`${i} banished ${at(point)}`);
+    }
+    if (step.lampHit !== null) {
+      lines.push(`${i} lampHit ${at(step.lampHit)}`);
+    }
+  }
+
+  for (const crawler of field.all) {
+    lines.push(`alive ${at(crawler)} bearing ${crawler.bearingRad.toFixed(9)}`);
+  }
+
+  return lines.join('\n');
 }
 
 describe('difficulty ramps (design.md §5.4)', () => {
@@ -293,5 +334,128 @@ describe('the catch, reported by the field (GAM-12)', () => {
     field.reset();
 
     assert.equal(field.step(FRAME, 0, FLOODLIT).froze.length, 0);
+  });
+});
+
+describe('the seeded run (design.md §14, GAM-38)', () => {
+  /** Long enough to pass the §11.1 first-timer run length several times over. */
+  const RUN_SECONDS = 120;
+
+  it('same seed, same inputs, identical spawn sequence', () => {
+    // This is OV-2's headline acceptance criterion, and the whole point of the
+    // weekly mode: `docs/vision.md` §5b.3 B5 wants two clients on one week key
+    // to see the same crawlers. The two fields below are those two clients.
+    const here = new CrawlerField(seededUnitRandom(0xc0ffee));
+    const there = new CrawlerField(seededUnitRandom(0xc0ffee));
+
+    const transcript = transcribe(here, RUN_SECONDS, DARK);
+
+    assert.ok(transcript.length > 0, 'the run produced something to compare');
+    assert.equal(transcribe(there, RUN_SECONDS, DARK), transcript);
+  });
+
+  it('holds under a beam that kills, where the field churns', () => {
+    // A dark run is deterministic for a dull reason: almost nothing happens to
+    // the crawlers. Burning them away keeps the field turning over, so the
+    // spawner, the §6.3 re-roll budget and the §5.3 cap all stay in play.
+    const here = new CrawlerField(seededUnitRandom(31337));
+    const there = new CrawlerField(seededUnitRandom(31337));
+
+    const transcript = transcribe(here, RUN_SECONDS, BURNING);
+    const count = (what: string): number =>
+      transcript.split('\n').filter((line) => line.includes(` ${what} `)).length;
+
+    assert.ok(count('froze') > 20, `only ${count('froze')} crawlers were caught`);
+    assert.ok(count('banished') > 20, `only ${count('banished')} were banished`);
+    assert.equal(transcribe(there, RUN_SECONDS, BURNING), transcript);
+  });
+
+  it('gives a different seed a different hollow', () => {
+    const here = new CrawlerField(seededUnitRandom(1));
+    const there = new CrawlerField(seededUnitRandom(2));
+
+    assert.notEqual(transcribe(there, 60, DARK), transcribe(here, 60, DARK));
+  });
+
+  it('replays the week on restart, because reset rewinds the seed', () => {
+    // Pillar 3 is one more sweep, at the same week. A player's fourth attempt
+    // at a weekly run must be the same run as their first, or the board is
+    // comparing scores from different hollows.
+    const field = new CrawlerField(seededUnitRandom(90210));
+    const first = transcribe(field, 60, DARK);
+
+    field.reset();
+
+    assert.equal(transcribe(field, 60, DARK), first);
+  });
+
+  it('keeps Free Play unseeded: two runs are two different hollows (§14.8)', () => {
+    const first = new CrawlerField(freePlayRun().random);
+    const second = new CrawlerField(freePlayRun().random);
+
+    assert.notEqual(transcribe(second, 60, DARK), transcribe(first, 60, DARK));
+  });
+
+  it('defaults to the Free Play path, so an unchanged caller is unchanged', () => {
+    const field = new CrawlerField();
+
+    // No argument at all is Math.random on the shipped config — what
+    // `src/scenes` has always constructed, and what §14.8 keeps for Free Play.
+    run(field, 30, FLOODLIT);
+    assert.ok(field.all.length > 0);
+    assert.equal(spawnInterval(42), spawnInterval(42, BASE_TUNING));
+    assert.equal(rampedSpeed(42), rampedSpeed(42, BASE_TUNING));
+  });
+
+  it('takes a week at reset, because a scene instance outlives a run (§2.2)', () => {
+    // Phaser reuses the scene, so the field is built once and the week arrives
+    // at the transition to PLAYING. A weekly run and a Free Play run on the
+    // same field object must not resemble each other.
+    const weekly = weeklyRunAt(Date.UTC(2026, 10, 4, 11, 30));
+    const field = new CrawlerField();
+
+    field.reset(weekly);
+    const seeded = transcribe(field, 60, DARK);
+
+    field.reset(weekly);
+    assert.equal(transcribe(field, 60, DARK), seeded, 'the same week replays');
+
+    field.reset(freePlayRun(seededUnitRandom(5)));
+    assert.notEqual(transcribe(field, 60, DARK), seeded, 'and Free Play does not');
+  });
+
+  it('plays a weekly run at the week’s numbers, not the shipped ones', () => {
+    // 2026-W52 is crowded-threshold x1.06 (§14.4): SPAWN_INTERVAL_START 3.2 ->
+    // 3.392, so the opening is quieter. The curve has to move with it, or the
+    // modifier is a label on a screen rather than a tuning value.
+    const quiet = weeklyRunAt(Date.UTC(2026, 11, 23, 12, 0));
+
+    assert.equal(quiet.week?.entry.id, 'crowded-threshold');
+    assert.ok(Math.abs(quiet.config.SPAWN_INTERVAL_START - 3.392) < 1e-9);
+    assert.ok(
+      spawnInterval(0, quiet.config) > spawnInterval(0, BASE_TUNING),
+      'they come later at first',
+    );
+    assert.equal(spawnInterval(0, quiet.config), quiet.config.SPAWN_INTERVAL_START);
+
+    // The floor and the slope are not in the table, so the run still bottoms
+    // out in the same place and at the same rate.
+    assert.equal(spawnInterval(10_000, quiet.config), BASE_TUNING.SPAWN_INTERVAL_MIN);
+    assert.equal(rampedSpeed(10_000, quiet.config), BASE_TUNING.CRAWLER_SPEED_MAX);
+  });
+
+  it('keeps the §5.4 shapes under every weekly config, which is what §14.9 B4 rests on', () => {
+    // This task retunes nothing. Whatever a modifier does to the constants, the
+    // interval still decays geometrically from its start to its floor and the
+    // speed still ramps linearly to its cap.
+    const weekly = weeklyRunAt(Date.UTC(2026, 10, 4, 11, 30)).config;
+
+    assert.equal(spawnInterval(0, weekly), weekly.SPAWN_INTERVAL_START);
+    assert.ok(spawnInterval(120, weekly) < spawnInterval(60, weekly));
+    assert.equal(spawnInterval(10_000, weekly), weekly.SPAWN_INTERVAL_MIN);
+
+    assert.equal(rampedSpeed(0, weekly), weekly.CRAWLER_SPEED_BASE);
+    assert.ok(rampedSpeed(60, weekly) > rampedSpeed(0, weekly));
+    assert.equal(rampedSpeed(10_000, weekly), weekly.CRAWLER_SPEED_MAX);
   });
 });

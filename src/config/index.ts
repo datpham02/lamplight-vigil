@@ -1018,3 +1018,72 @@ export const RESTART_BUDGET_SECONDS = 1.0;
  * worst-case arithmetic in `restartClock.ts`.
  */
 export const RESTART_BUDGET_FRAMES = 2;
+
+// ---------------------------------------------------------------------------
+// §14 Weekly seed — Online Vigil
+// ---------------------------------------------------------------------------
+//
+// `docs/design.md` §14, owned by `game-designer`, approved by `game-director`
+// before OV-2 started. The three values below are what the *schedule* is built
+// out of: when a week turns over, where the count starts, and what every seed
+// string is prefixed with.
+//
+// The closed §14.5 modifier table is data too, but it is big enough to be its
+// own file: `./weeklyModifiers.ts`, with the config-override surface it is
+// applied to in `./tuning.ts`. The pure functions that read all of it — the week
+// key, the seed, the eight-week block schedule and the run setup — are in
+// `src/weekly`. Nothing in this section reads a clock, and nothing here touches
+// the network: a week resolves from the device clock and `src/config` alone (§14
+// preamble; the provider decision D4 is still pending with the Board and is
+// named nowhere).
+
+/**
+ * §14.2 — Monday 5 January 2026 00:00:00 **in the reset frame**, which is the
+ * real instant `2026-01-04T17:00:00Z`. It is the Monday of `2026-W02`, and the
+ * origin `weekIndex` counts whole weeks from.
+ *
+ * It is in the past so no shipped build ever computes a negative index, and it
+ * is a Monday *of the reset frame* — the same frame `weekIndex` does its
+ * subtraction in — which is what makes that subtraction exact rather than
+ * rounded. §14.2 names the trap in the constant's own name: the number is a
+ * reset-frame midnight, not a UTC one, so it is **not** converted back to a real
+ * UTC instant before being subtracted. Doing that would make every difference
+ * seven hours short of a whole number of weeks, and `Math.floor` would report
+ * every index one week low, forever and consistently enough to look deliberate.
+ */
+export const WEEKLY_EPOCH_UTC_MS = Date.UTC(2026, 0, 5);
+
+/**
+ * The single named offset the weekly reset is anchored to, in hours ahead of
+ * UTC. GAM-16 decision **D6**, restated by the Board on 2026-11-04 ("Keep
+ * UTC+7") and written into `docs/design.md` §14.2 and §14.4 by GAM-43: the week
+ * begins **Monday 00:00:00 at UTC+7** — the same instant as **Sunday 17:00:00
+ * UTC** — and runs 7 days.
+ *
+ * This is the only place the boundary is written down (criterion 36). Nothing
+ * else in the game, the simulation or the tests may spell a 7, a 17:00 or a
+ * Sunday of its own, and nothing anywhere may consult the host's time zone: a
+ * boundary recorded in two places is a boundary that will eventually disagree
+ * with itself, and one read from the device would put two players in different
+ * zones on different weeks of the same board.
+ *
+ * A fixed offset is not local time. It is one boundary for the entire world,
+ * crossed by every player at the same instant, with no daylight-saving rule and
+ * a week that is 7 × 24 h forever. All it moves is where the boundary lands on a
+ * UTC clock.
+ *
+ * Changing it reshuffles nothing — the block schedule is seeded from the week
+ * key, so a different boundary moves which instants belong to which week, not
+ * which entry a given week key resolves to. That is why §14.4's entry and value
+ * columns survived this change untouched while every §14.2 vector moved.
+ */
+export const WEEK_RESET_UTC_OFFSET_HOURS = 7;
+
+/**
+ * §14.3 — the prefix of every seed string, with the trailing `1` a **schedule
+ * version**. Bumping it reshuffles every week from that build onward and is the
+ * only sanctioned way to reshuffle the schedule deliberately; it is a design
+ * decision needing `game-director` approval, exactly like a table entry.
+ */
+export const WEEKLY_SEED_NAMESPACE = 'lamplight-vigil/weekly/1';
+
