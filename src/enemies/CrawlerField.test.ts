@@ -247,3 +247,48 @@ describe('the run-ending contact (design.md §5.1)', () => {
     assert.equal(banished, held, 'every crawler held was counted once and only once');
   });
 });
+
+describe('the catch, reported by the field (GAM-12)', () => {
+  it('reports each crawler once when the light arrives, not once per frame', () => {
+    const field = new CrawlerField(seededRandom(37));
+    run(field, 30, DARK);
+    const walking = field.all.length;
+    assert.ok(walking > 0, 'there is a field to catch');
+
+    const first = field.step(FRAME, 30, FLOODLIT);
+    assert.equal(first.froze.length, walking, 'the whole field was caught at once');
+
+    for (let i = 0; i < 10; i += 1) {
+      const held = field.step(FRAME, 30, FLOODLIT);
+      assert.equal(held.froze.length, 0, 'holding them is not catching them again');
+    }
+  });
+
+  it('reports a crawler again after the light has left it', () => {
+    const field = new CrawlerField(seededRandom(41));
+    run(field, 30, DARK);
+    const walking = field.all.length;
+
+    field.step(FRAME, 30, FLOODLIT);
+    field.step(FRAME, 30, DARK);
+
+    assert.equal(field.step(FRAME, 30, FLOODLIT).froze.length, walking, 'caught again');
+  });
+
+  it('is empty on a frame where nothing is lit', () => {
+    const field = new CrawlerField(seededRandom(43));
+    run(field, 30, DARK);
+
+    assert.equal(field.step(FRAME, 30, DARK).froze.length, 0);
+  });
+
+  it('is cleared by reset, so a restart cannot replay the last run (§2.2)', () => {
+    const field = new CrawlerField(seededRandom(47));
+    run(field, 30, DARK);
+    assert.ok(field.step(FRAME, 30, FLOODLIT).froze.length > 0);
+
+    field.reset();
+
+    assert.equal(field.step(FRAME, 0, FLOODLIT).froze.length, 0);
+  });
+});

@@ -12,6 +12,7 @@ import {
   BURN_DWELL_TIME,
   CRAWLER_RADIUS,
   CRAWLER_SPEED_BASE,
+  FREEZE_FLASH_TIME,
   LAMP_RADIUS,
   LAMP_X,
   LAMP_Y,
@@ -167,5 +168,91 @@ describe('movement and contact (design.md §5.1)', () => {
     }
 
     assert.ok(Math.hypot(crawler.x - LAMP_X, crawler.y - LAMP_Y) <= contact);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Game feel — GAM-12
+// ---------------------------------------------------------------------------
+//
+// The feedback state a crawler carries, and the thing that actually matters
+// about a feel pass: that it is only feedback. Nothing in these suites may
+// change when a crawler freezes, burns, moves or dies — the suites above own
+// that, and they are unchanged.
+
+describe('the catch, as a hook (GAM-12)', () => {
+  it('fires on the frame the light arrives, and only that frame', () => {
+    const crawler = freshCrawler();
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, false, false);
+    assert.equal(crawler.justFroze, false, 'unlit is not a catch');
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    assert.equal(crawler.justFroze, true, 'the light arrived');
+
+    for (let i = 0; i < 10; i += 1) {
+      crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+      assert.equal(crawler.justFroze, false, 'held is not caught again');
+    }
+  });
+
+  it('fires again when the light leaves and comes back', () => {
+    const crawler = freshCrawler();
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, false, false);
+    assert.equal(crawler.justFroze, false);
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    assert.equal(crawler.justFroze, true, 'a second catch is a second catch');
+  });
+
+  it('counts the first lit frame of a crawler spawned into the beam', () => {
+    const crawler = freshCrawler();
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+
+    assert.equal(crawler.justFroze, true);
+  });
+});
+
+describe('the catch flash (GAM-12)', () => {
+  it('starts full on the catch and decays to nothing over FREEZE_FLASH_TIME', () => {
+    const crawler = freshCrawler();
+    assert.equal(crawler.freezeFlash, 0, 'nothing to show before the catch');
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    assert.equal(crawler.freezeFlash, 1);
+
+    const frames = Math.ceil(FREEZE_FLASH_TIME / FRAME);
+    for (let i = 0; i < frames; i += 1) {
+      crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    }
+
+    assert.equal(crawler.freezeFlash, 0, 'and it is gone');
+  });
+
+  it('restarts on a second catch rather than carrying over', () => {
+    const crawler = freshCrawler();
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+    assert.ok(crawler.freezeFlash < 1, 'it had started to fade');
+
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, false, false);
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+
+    assert.equal(crawler.freezeFlash, 1, 'the new catch owns the flash');
+  });
+
+  it('plays out after the light has left, and holds nothing while it does', () => {
+    const crawler = freshCrawler();
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, false);
+
+    const frozenX = crawler.x;
+    crawler.advance(FRAME, CRAWLER_SPEED_BASE, false, false);
+
+    assert.ok(crawler.freezeFlash > 0, 'the flash outlives the freeze');
+    assert.equal(crawler.isFrozen, false, 'but the crawler is not held by it');
+    assert.ok(crawler.x < frozenX, 'and it walks again on that same frame (§5.2 rule 1)');
   });
 });
