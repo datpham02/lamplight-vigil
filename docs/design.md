@@ -81,12 +81,29 @@ The only state in which the world updates.
 | Beam aim | the current pointer position, applied before the first frame renders |
 | Spawn interval | `SPAWN_INTERVAL_START` |
 | Next spawn timer | `SPAWN_FIRST_DELAY` |
+| Focus input | **disarmed** — see the edge-trigger rule below |
 
 **Explicitly not reset:** the best score, and anything in `localStorage`.
 
 Beam aim is reset *to the live pointer position* rather than to a fixed heading so
 the first frame of a restart is never a beam pointing somewhere the player is not
 looking. This matters for the sub-second restart feel in pillar 3.
+
+**Focus is edge-triggered on entry to PLAYING.** A focus input (`INPUT_FOCUS_KEY`
+or left mouse button) that is *already held* at the moment of entry does not count
+as a hold. It is ignored until it is released and pressed again; the beam starts
+`WIDE` and power does not drain.
+
+This exists because the click that starts a run is itself a focus binding (§7). A
+player who clicks through the title screen is still holding the button on the first
+frame of PLAYING, and without this rule the beam begins narrowing and draining at
+`t = 0`, before they have oriented or even seen the arena. The same path opens on
+any restart taken with the button still down.
+
+**Scope it to this transition only.** It must not touch §4.2's rearm, where
+resuming under a still-held key is deliberate and correct: there the player chose
+to hold, and the recovery beat is the reward for holding. Here they never chose at
+all. The distinction is whether the hold began before the state was entered.
 
 ### 2.3 GAME_OVER
 
@@ -103,15 +120,23 @@ CRAWLER_RADIUS` of the lamp centre. On entry, in this order:
 4. Show the game-over overlay: final score, crawlers banished, time survived, best
    score, and the restart prompt.
 
-`R` is ignored for `GAME_OVER_INPUT_LOCKOUT` after entry, then restarts the run.
+`R` does not restart the run for `GAME_OVER_INPUT_LOCKOUT` after entry. **A press
+during the lockout is buffered, not discarded: it fires the instant the lockout
+expires.** One buffered press is enough — further presses during the lockout change
+nothing. The buffer is cleared on entry to PLAYING, so a press held across the
+restart cannot queue a second one.
 
 The lockout exists because death is sudden and a player's hands are already moving;
 without it, a reflexive `R` can skip the score before it is read. It is not a
 confirmation step and not an intermediate screen — pillar 3 forbids those, and this
-is neither. QA measures restart from the *moment of death*, not from the first
-accepted keypress: `GAME_OVER_INPUT_LOCKOUT` plus the transition must stay inside
-the 1.0 s budget in `docs/vision.md` §6 criterion 1. If it ever does not, set it to
-`0` — it is a comfort value, not a balance value.
+is neither.
+
+Buffering is what keeps it from being a dropped input. A game that silently ignores
+a keypress is the exact feel pillar 3 exists to protect, and a deferred press costs
+nothing against the budget: QA measures restart from the *moment of death*, not
+from the first accepted keypress, so `GAME_OVER_INPUT_LOCKOUT` plus the transition
+must stay inside the 1.0 s budget in `docs/vision.md` §6 criterion 1 either way. If
+it ever does not, set it to `0` — it is a comfort value, not a balance value.
 
 ### 2.4 Time, and the frame-stall rule
 
@@ -217,6 +242,9 @@ When power reaches `0`:
 2. The focus input is **ignored** until power recovers to `POWER_FOCUS_REARM`.
 3. At `POWER_FOCUS_REARM`, focus arms again. If the player is still holding the
    key at that moment, the beam begins narrowing immediately — no re-press needed.
+   **This is deliberate and is not affected by §2.2's edge trigger**, which applies
+   only to entry into PLAYING. Here the player chose to keep holding; there they
+   never pressed at all.
 
 The rearm threshold is not flavour. Without it, a player holding focus at zero
 power gets one frame of focus per frame of recharge, producing a flickering beam
@@ -364,23 +392,32 @@ The complete input surface. Nothing else is read.
 | Input | State | Effect |
 | --- | --- | --- |
 | Pointer move | PLAYING | Sets the beam heading from the lamp centre to the pointer. |
-| Hold `INPUT_FOCUS_KEY` | PLAYING | Narrows the beam. Release widens it. |
-| Hold left mouse button | PLAYING | Identical to the above. |
-| `INPUT_RESTART_KEY` | GAME_OVER | Restarts, after `GAME_OVER_INPUT_LOCKOUT`. |
+| Hold `INPUT_FOCUS_KEY` | PLAYING | Narrows the beam. Release widens it. Edge-triggered on entry to PLAYING (§2.2). |
+| Hold left mouse button | PLAYING | Identical to the above, including the edge trigger. |
+| `INPUT_RESTART_KEY` | GAME_OVER | Restarts. A press inside `GAME_OVER_INPUT_LOCKOUT` is buffered and fires when it expires (§2.3). |
 | Any key, any click | TITLE | Starts the run. |
+
+**Both focus bindings are edge-triggered on entry to PLAYING** — a focus input
+already held when the state is entered is ignored until released and pressed again
+(§2.2). This is a direct consequence of left mouse button being a focus binding:
+without it, the click that starts the run is also a focus hold, and the run opens
+with the beam narrowing and power draining before the player has seen the arena.
 
 Aiming is absolute, not relative: the beam points at the pointer, with no
 smoothing, no lag and no turn-rate limit. Any of those would be beam-rotation
 inertia, which is the §9.3 contingency and is not in scope.
 
-**On the second focus binding.** `docs/concept.md` §6.4 says "holding a key", and
-`INPUT_FOCUS_KEY` honours that. Left mouse button is an additional binding for the
-same action, decided here under my own authority: it adds no mechanic, no state and
-no input the pillars do not already permit, and it is how a first-time player will
-try to focus before they read anything. `docs/vision.md` §6 criterion 5 requires
-every playtester to describe the wide/focused trade-off after **one** run,
-unprompted — a trade-off they never discovered cannot be described. Flagging it
-here so `game-director` can see it rather than find it.
+**On the second focus binding — ruled, approved.** `docs/concept.md` §6.4 says
+"holding a key", and `INPUT_FOCUS_KEY` honours that. Left mouse button is an
+additional binding for the same action: it adds no mechanic, no state and no input
+the pillars do not already permit, and it is how a first-time player will try to
+focus before they read anything. `docs/vision.md` §6 criterion 5 requires every
+playtester to describe the wide/focused trade-off after **one** run, unprompted —
+a trade-off they never discovered cannot be described.
+
+`game-director` approved this: it is a binding, not a verb, and pillar 1's test is
+whether an input does anything other than aim or shape the beam. It does not. The
+edge-trigger rule above is the condition attached to that approval.
 
 The title screen states both bindings and the restart key. Per pillar 2, the game
 never relies on an audio cue for information the player must act on.
@@ -398,17 +435,44 @@ banished this run. Score accrues continuously and is displayed floored, so the H
 counts up smoothly rather than ticking once a second.
 
 **The weighting, and why.** Time pays `SCORE_PER_SECOND_SURVIVED` per second
-unconditionally. Banishing pays `SCORE_PER_BANISH` each, and a practised player
-sustains roughly 0.5 banishes per second (§11.1) — about 12.5 points per second of
-aggressive play against 10 for surviving. Aggression wins, but only by about a
-quarter.
+unconditionally. Banishing pays `SCORE_PER_BANISH` each — but **how much that is
+worth per second is not fixed, because realised banishes are supply-limited by the
+spawn rate, not by the player's capacity.** A player cannot banish crawlers that
+have not spawned. So the banish-vs-survive comparison is:
 
-That margin is the design intent and the reason these two numbers are set together:
-a larger gap turns the game into a pure kill race and makes the wide beam a
-mistake, which guts the triage the loop is built on; a smaller gap or an inverted
-one rewards turtling behind a wide sweep, which is the passive failure mode in
-`docs/concept.md` §9. Retune either value only against the other, and re-derive
-the per-second comparison when you do.
+> banish income ≈ `spawn rate × SCORE_PER_BANISH`, against `SCORE_PER_SECOND_SURVIVED` flat.
+
+With `25` and `10`, the two are equal at a spawn rate of `10 / 25 = 0.4` per
+second, which §11.1's table puts at about **t = 120 s**. That single crossover is
+what these two numbers actually buy:
+
+| Phase of the run | Spawn rate (§11.1) | Banish income | Time income | Which pays |
+| --- | --- | --- | --- | --- |
+| Opening (`t = 0`) | 0.250/s | 6.3 pts/s | 10 pts/s | **Surviving** |
+| `t ≈ 120 s` | 0.404/s | 10.1 pts/s | 10 pts/s | Parity |
+| Practised crossing (`t ≈ 218 s`) | 0.600/s | 15.0 pts/s | 10 pts/s | **Banishing** |
+
+So the weighting produces a **gradient, not a flat margin**: patience is correct
+early, when crawlers are scarce and every one of them is also the thing that ends
+your run, and aggression is correct late, when they arrive faster than they are
+worth waiting on. The player is not being asked to pick a strategy once; they are
+being asked to notice when the answer changed. That is the same triage the beam
+width demands, expressed in the score.
+
+Averaged across a whole deep run the two land near parity — §11.1's practised run
+banishes 95 crawlers in 240 s, a realised 0.40/s, paying 9.9 points per second
+against time's 10. Neither strategy dominates end to end. That is the intent, and
+it is why **the earlier framing of a flat "aggression wins by a quarter" was wrong**
+and has been removed: `0.5` banishes/s is a *capacity* figure from §11.3, not a
+realised rate, and no player sustains it because no spawner supplies it.
+
+Retune either value only against the other, and re-derive **the crossover time**,
+not a per-second margin. Raising `SCORE_PER_BANISH` moves the crossover earlier and
+at the extreme deletes the patient phase, making the wide beam a mistake and gutting
+the triage the loop is built on; lowering it moves the crossover past the end of a
+realistic run, which rewards turtling behind a wide sweep — the passive failure mode
+in `docs/concept.md` §9. The number to keep honest is **where the gradient crosses**,
+and it should land inside the window where runs actually end.
 
 **No precision bonus.** `docs/vision.md` §8.2 leaves open whether a burn completed
 at the last moment before contact should pay extra. It stays open and stays out:
@@ -508,7 +572,7 @@ exports match `src/config/index.ts` as seeded by the skeleton task.
 | `RENDER_HEIGHT` | `number` | px | `540` | fixed | §3.2 — not tunable |
 | `DELTA_CLAMP_MS` | `number` | ms | `50` | 20–100 | §2.4 frame-stall clamp |
 | `SPAWN_FIRST_DELAY` | `number` | s | `1.2` | 0.5–3.0 | §6.1 grace before the first crawler |
-| `GAME_OVER_INPUT_LOCKOUT` | `number` | s | `0.25` | 0–0.5 | §2.3 restart lockout |
+| `GAME_OVER_INPUT_LOCKOUT` | `number` | s | `0.25` | 0–0.5 | §2.3 restart lockout. A press inside it is buffered, never dropped |
 
 ### 10.2 Lamp and arena
 
@@ -529,7 +593,7 @@ exports match `src/config/index.ts` as seeded by the skeleton task.
 | `BEAM_WIDE_ANGLE_DEG` | `number` | degrees, full cone | `70` | 50–95 | §3.2. Spike parameter (§9.2) |
 | `BEAM_WIDE_RANGE` | `number` | px from lamp centre | `420` | 320–470 | §3.2. Must stay **under 480** or wide reaches the side edges and §3.2 fact 1 breaks |
 | `BEAM_FOCUS_ANGLE_DEG` | `number` | degrees, full cone | `16` | 10–26 | §3.2. Must stay well under `BEAM_WIDE_ANGLE_DEG` |
-| `BEAM_FOCUS_RANGE` | `number` | px from lamp centre | `560` | 520–580 | §3.2. Must stay **above 551** (the half-diagonal) or corners become unreachable |
+| `BEAM_FOCUS_RANGE` | `number` | px from lamp centre | `560` | 555–580 | §3.2. Must stay **above 551** (the half-diagonal) or corners become unreachable. The safe floor is 555, not 551, so that no value inside the range can break the invariant |
 | `BEAM_TRANSITION_TIME` | `number` | s | `0.12` | 0.05–0.25 | §3.1 narrow/widen duration |
 | `BEAM_WIDE_ALPHA` | `number` | 0–1 | `0.16` | 0.08–0.30 | §3.2. Must stay below `BEAM_FOCUS_ALPHA` |
 | `BEAM_FOCUS_ALPHA` | `number` | 0–1 | `0.34` | 0.20–0.55 | §3.2 |
@@ -551,9 +615,21 @@ exports match `src/config/index.ts` as seeded by the skeleton task.
 | --- | --- | --- | --- | --- | --- |
 | `CRAWLER_RADIUS` | `number` | px | `9` | 6–14 | §5.1 draw and contact |
 | `CRAWLER_SPEED_BASE` | `number` | px/s | `52` | 35–75 | §5.4 |
-| `CRAWLER_SPEED_MAX` | `number` | px/s | `88` | 60–130 | §5.4. **Hard ceiling 130** — above it the game fails the 1.5 s readability check. See §11.2 |
+| `CRAWLER_SPEED_MAX` | `number` | px/s | `88` | 60–130, **subject to the joint bound below** | §5.4. See §11.2 |
 | `CRAWLER_SPEED_RAMP_PER_SECOND` | `number` | fraction of base per s | `0.0035` | 0.001–0.008 | §5.4 |
-| `CRAWLER_SPEED_JITTER` | `number` | fraction, ± | `0.12` | 0–0.25 | §6.3 |
+| `CRAWLER_SPEED_JITTER` | `number` | fraction, ± | `0.12` | 0–0.25, **subject to the joint bound below** | §6.3 |
+
+**Joint speed bound — binds `CRAWLER_SPEED_MAX` and `CRAWLER_SPEED_JITTER` together:**
+
+> `CRAWLER_SPEED_MAX × (1 + CRAWLER_SPEED_JITTER) ≤ 156 px/s`, where `156 = 234 / 1.5`.
+
+This is the real readability bound and it is not expressible as two independent
+ranges. A crawler's time on screen is set by its *effective* speed, so the bound is
+stated in effective speed. The two ranges above are each individually safe but
+jointly reachable past the bound — `130 × 1.25 = 162.5 px/s` gives `234 / 162.5 =
+1.44 s`, under the 1.5 s floor, without either value ever leaving its own range.
+Check the product, not the rows. At the initial values: `88 × 1.12 = 98.6 px/s`,
+well inside. See §11.2 for the derivation of `234` and `156`.
 | `CRAWLER_COLOR` | `number` | `0xRRGGBB` | `0x8a93a8` | `ui-designer` | Default crawler |
 | `CRAWLER_FROZEN_COLOR` | `number` | `0xRRGGBB` | `0x9fd4ff` | `ui-designer` | §5.2 frozen tell |
 | `CRAWLER_BURN_COLOR` | `number` | `0xRRGGBB` | `0xffb066` | `ui-designer` | §5.2 burn-progress tell |
@@ -582,8 +658,8 @@ exports match `src/config/index.ts` as seeded by the skeleton task.
 
 | Name | Type | Unit | Initial | Safe range | Governs |
 | --- | --- | --- | --- | --- | --- |
-| `SCORE_PER_SECOND_SURVIVED` | `number` | points/s | `10` | 0–50 | §8. Retune against `SCORE_PER_BANISH` only |
-| `SCORE_PER_BANISH` | `number` | points | `25` | 0–200 | §8. Retune against `SCORE_PER_SECOND_SURVIVED` only |
+| `SCORE_PER_SECOND_SURVIVED` | `number` | points/s | `10` | 0–50 | §8. Retune against `SCORE_PER_BANISH` only; re-derive the crossover |
+| `SCORE_PER_BANISH` | `number` | points | `25` | 0–200 | §8. Retune against `SCORE_PER_SECOND_SURVIVED` only; the ratio sets the patience-to-aggression crossover at `SCORE_PER_SECOND_SURVIVED / SCORE_PER_BANISH` spawns/s |
 | `SCORE_STORAGE_KEY` | `string` | — | `'lamplight-vigil.best-score'` | fixed | §8. Changing it orphans every existing best score |
 
 ### 10.9 Input
@@ -669,11 +745,23 @@ less the `CRAWLER_RADIUS` spawn inset — **234 px** of travel.
 - At `CRAWLER_SPEED_MAX` with maximum jitter (98.6 px/s): **2.4 s**.
 
 All clear 1.5 s with margin, and the fastest case only exists after about 198 s,
-when speed caps. The criterion breaks at `234 / 1.5 = 156 px/s` before jitter, or
-**139 px/s** once `CRAWLER_SPEED_JITTER` is applied — which is why
-`CRAWLER_SPEED_MAX` carries a hard ceiling of `130` in §10.5, leaving a margin for
-jitter rather than sitting on the bound. That ceiling is a correctness bound, not a
-taste bound: above it the game fails a pillar 2 check.
+when speed caps.
+
+**The bound is on effective speed, not on `CRAWLER_SPEED_MAX` alone.** The
+criterion breaks at `234 / 1.5 = 156 px/s` of *effective* speed — the speed a
+crawler actually travels at, after jitter. So the invariant in §10.5 is the product:
+
+> `CRAWLER_SPEED_MAX × (1 + CRAWLER_SPEED_JITTER) ≤ 156 px/s`
+
+Stating it as a ceiling on `CRAWLER_SPEED_MAX` alone would be wrong, because
+`CRAWLER_SPEED_JITTER` is itself tunable: at the top of both §10.5 ranges,
+`130 × 1.25 = 162.5 px/s` and the shortest approach takes `1.44 s` — a criterion 4
+and pillar 2 failure reached without either value leaving its own safe range. The
+product form is tune-proof where two independent ranges are not. At the initial
+values the margin is large: `88 × 1.12 = 98.6 px/s`, or 63% of the bound.
+
+This is a correctness bound, not a taste bound: past it the game fails a pillar 2
+check — a crawler the player cannot react to.
 
 Long-axis approaches are far roomier: `480 − 27 − 9 = 444 px`, giving **8.5 s** at
 base speed and **5.0 s** at the cap.
@@ -692,8 +780,15 @@ base speed and **5.0 s** at the cap.
 - Efficient banishes from a full bar: `POWER_MAX / 14.8` = **6.7**.
 - Theoretical sustained banish rate: 0.57 s focused plus `14.8 / 17 = 0.87 s`
   recharging = **1.44 s per banish**, i.e. **0.69/s** with perfect aim and no
-  travel between targets. Real practised play lands near **0.5/s** — the figure §8
-  uses to set the score weighting, and §11.1 uses to set the practised crossing.
+  travel between targets. Real practised play lands near **0.5/s** — the figure
+  §11.1 uses to set the practised crossing.
+
+**0.5/s is a capacity, not a rate.** It is the ceiling on how fast a player *can*
+service crawlers, and it is only ever reached when crawlers are arriving that fast.
+Below the practised crossing the player is supply-limited, not capacity-limited, and
+realised banishes track the spawn rate instead. §8 is derived from spawn rate for
+exactly that reason; using this figure there would overstate banish income across
+the whole early run.
 
 ### 11.4 The crawler cap — `docs/vision.md` §6 criterion 3
 
@@ -736,9 +831,11 @@ the task's criteria against the sections above, so QA can derive cases directly.
 | 4 | No second player verb, and no hidden state | §7 is the entire input surface — exercise every input and confirm each only aims or shapes the beam. Confirm power, the `POWER_FOCUS_REARM` mark, the focus lockout, burn progress and freeze are all visible on screen (§4.2, §5.2) |
 | 5 | Nothing from `docs/concept.md` §7 "Explicitly out" is introduced | §1 lists what is excluded; read §2–§8 against the out-list |
 | 6 | The passivity spike is specified, and beam-rotation inertia is recorded as a contingency only | §9. The spike has three parameter sets, four measures and a pass bar (§9.2). §9.3 adds no constants to §10 and instructs that the pivot is not implemented here |
-| 7 | Every crawler is on screen ≥ 1.5 s before it can reach the lamp | §11.2 derives 2.4 s as the worst case, at maximum speed and maximum jitter on the shortest approach. QA records a run and steps back from each contact |
+| 7 | Every crawler is on screen ≥ 1.5 s before it can reach the lamp | §11.2 derives 2.4 s as the worst case, at maximum speed and maximum jitter on the shortest approach. Check the §10.5 joint bound as a product — `CRAWLER_SPEED_MAX × (1 + CRAWLER_SPEED_JITTER) ≤ 156` — not the two ranges separately. QA records a run and steps back from each contact |
 | 8 | Restart from the moment of death to the first playable frame is ≤ 1.0 s | §2.3. Budget includes `GAME_OVER_INPUT_LOCKOUT` |
 | 9 | A stalled frame cannot kill the player | §2.4. Background the tab for 10 s, return, and confirm no crawler jumped position |
+| 10 | No restart press is ever dropped | §2.3. Press `R` within 0.1 s of death; the run must restart when the lockout expires, not require a second press |
+| 11 | A run never opens with the beam already narrowing | §2.2. Start a run by clicking and keep the button held; confirm the beam stays `WIDE` and power does not drain until the button is released and pressed again. Repeat on restart with `R` held and with the mouse held. Then confirm §4.2's rearm still resumes under a held key — the edge trigger must not have leaked into it |
 
 ---
 
