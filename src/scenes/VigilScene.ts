@@ -1,33 +1,52 @@
 // src/scenes owns the Phaser scenes and their lifecycle wiring.
 import Phaser from 'phaser';
 
-import {
-  LAMP_COLOR,
-  LAMP_GLOW_ALPHA,
-  LAMP_GLOW_COLOR,
-  LAMP_GLOW_RADIUS,
-  LAMP_RADIUS,
-  RENDER_HEIGHT,
-  RENDER_WIDTH,
-} from '../config/index';
+import { Beam, Lamp } from '../beam/index';
 
 /**
- * Placeholder scene for the skeleton: a single lamp in the centre of the dark
- * hollow. Beam, enemies and HUD are added by later tasks.
+ * The single play scene: the lamp in the centre of the dark hollow, and the
+ * wide beam it casts towards the mouse.
+ *
+ * Skeleton stage — rendering and aim only. Focus, power, crawler spawning,
+ * freeze/burn resolution, scoring and the HUD are added by later tasks, which
+ * own their own modules and talk to this scene through src/scenes/events.ts.
  */
 export class VigilScene extends Phaser.Scene {
   public static readonly KEY = 'vigil';
 
-  constructor() {
+  private lamp!: Lamp;
+  private beam!: Beam;
+
+  /**
+   * Milliseconds since this run began, accumulated from delta time.
+   * Per-run state, so it is reset in init() rather than the constructor —
+   * Phaser reuses scene instances across restarts.
+   */
+  private elapsedMs = 0;
+
+  public constructor() {
     super(VigilScene.KEY);
   }
 
-  // Not `override`: Phaser's Scene base class does not declare create().
-  create(): void {
-    const centreX = RENDER_WIDTH / 2;
-    const centreY = RENDER_HEIGHT / 2;
+  // init() and create() are not `override`: Phaser's Scene base class does not
+  // declare them. update() is declared on the base class, so it is.
 
-    this.add.circle(centreX, centreY, LAMP_GLOW_RADIUS, LAMP_GLOW_COLOR, LAMP_GLOW_ALPHA);
-    this.add.circle(centreX, centreY, LAMP_RADIUS, LAMP_COLOR);
+  /** Runs before create() on every start and restart. Reset per-run state here. */
+  init(): void {
+    this.elapsedMs = 0;
+  }
+
+  create(): void {
+    // Placeholder programmer art is generated here, once at boot, not per frame
+    // (performance mitigation, docs/concept.md §9).
+    this.beam = new Beam(this);
+    this.lamp = new Lamp(this);
+  }
+
+  override update(_time: number, delta: number): void {
+    this.elapsedMs += delta;
+
+    this.beam.update();
+    this.lamp.update(this.elapsedMs);
   }
 }

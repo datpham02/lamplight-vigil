@@ -29,14 +29,26 @@ npm run preview     # serve the built dist/ locally
 
 ```
 src/config/    All tuning values (speeds, radii, colours, rates)
-src/beam/      The player's light
+src/beam/      The player's light: the lamp and the cone it casts
 src/enemies/   Creatures and their freeze/burn states
 src/hud/       On-screen readouts
-src/scenes/    Phaser scenes
+src/scenes/    Phaser scenes, and the scene event contract (events.ts)
 src/main.ts    Game boot
 ```
 
-The game renders at a fixed 960x540 and is scaled to fit the window.
+The game renders at a fixed 960x540 and is scaled to fit the window
+(`Phaser.Scale.FIT`, centred), so it letterboxes rather than re-laying out. No
+gameplay code reads the browser window size.
+
+Modules talk to each other over the scene event bus — see
+[`src/scenes/events.ts`](./src/scenes/events.ts) — not by holding references to
+each other's classes.
+
+## What is implemented so far
+
+The lamp and the wide beam, rendering and aim only: the lamp sits at the centre
+and the cone follows the mouse. Focusing, the power meter, crawlers, scoring and
+the HUD are later tasks in the "Playable Vigil" milestone.
 
 ## For agents
 
@@ -46,5 +58,12 @@ rules, and the rule that all tuning values live in `src/config`.
 ## Assets
 
 Assets are original or CC0 only; provenance is listed here as assets are added.
+An asset with no entry in this table is a blocker, not a detail to fix later.
 
-_No assets yet._
+| Asset | Kind | Provenance | Licence |
+| ----- | ---- | ---------- | ------- |
+| `lamp-glow` | Radial-gradient halo, generated in code at boot ([`src/beam/Lamp.ts`](./src/beam/Lamp.ts)) | Original, written for this game | Same as the repository |
+| Lamp core, beam cone | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+
+No binary or third-party art, audio or font files are in the repository. All
+placeholder programmer art is generated from code once at boot.
