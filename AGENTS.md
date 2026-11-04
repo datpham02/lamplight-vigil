@@ -94,7 +94,7 @@ src/config/    All tuning values. Owned jointly by game-designer and gameplay-pr
 src/beam/      The player's light: aiming, width control, power drain.
 src/enemies/   Creatures: spawning from the edges, movement, freeze and burn states.
 src/hud/       On-screen readouts: lamp power, score, run state messaging.
-src/weekly/    The week key, the seed, the §14.4 block schedule, the modifier override layer. Pure; no clock, no storage, no network. The table itself is data in src/config.
+src/weekly/    The week key, the seed, the §14.4 block schedule, and what a run is played under in each mode. Pure; no clock read, no storage, no network. The modifier table and the override layer it is applied through are data in src/config.
 src/scenes/    Phaser scenes and their lifecycle wiring.
 src/host/      The boundary with the host page: mount, destroy, pause, input scope, the Phaser config.
 src/main.ts    One caller of src/host's mount(). Keep it thin.

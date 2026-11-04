@@ -1,5 +1,5 @@
-// docs/design.md §14.2 and its acceptance criteria 18 and 36: the week key is a
-// pure function of the clock instant, read at the fixed offset
+// docs/design.md §14.2 and its acceptance criterion 18: the week key is a pure
+// function of the clock instant, read at the fixed offset
 // WEEK_RESET_UTC_OFFSET_HOURS = 7 (GAM-16 decision D6).
 //
 // The nine vectors below are the ones §14.2 publishes. Every one of them sits on
@@ -65,11 +65,15 @@ describe('the week key (design.md §14.2, criterion 18)', () => {
     }
   });
 
-  it('is anchored to the one named offset constant, at 7 (D6, criterion 36)', () => {
+  it('is anchored to the one named offset constant, at 7 (D6)', () => {
     // GAM-16 decision D6, restated by the Board on 2026-11-04 ("Keep UTC+7")
     // and written into §14.2 and §14.4 by GAM-43. The value is asserted here so
     // that it cannot drift silently: every vector in this file moves with it,
     // and §14.2/§14.4 would have to be re-derived by `game-designer` again.
+    //
+    // This is §14.10's "the week boundary is written down exactly once", which
+    // that table numbers 36 — a number §15's table already uses for something
+    // else. Cited by its text rather than its number until that is renumbered.
     assert.equal(WEEK_RESET_UTC_OFFSET_HOURS, 7, 'docs/design.md §14.2 derives its vectors at 7');
   });
 
