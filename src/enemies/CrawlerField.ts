@@ -114,6 +114,21 @@ export class CrawlerField {
     return this.crawlers;
   }
 
+  /**
+   * Seconds until the next crawler arrives — the countdown this field actually
+   * holds, not the §5.4 interval it was last reset to.
+   *
+   * Read-only, and read by the scene alone so the HUD can print it: pillar 2 in
+   * `docs/vision.md` forbids the game holding a timer the screen never shows.
+   * Nothing here may be assigned from outside; the spawner owns its own clock.
+   *
+   * Floored at zero because `step` is what drives the countdown back above it,
+   * so a reader between frames must never be handed a negative time.
+   */
+  public get secondsToNextSpawn(): number {
+    return Math.max(0, this.nextSpawnIn);
+  }
+
   /** §2.2 — per-run reset: every crawler destroyed, the spawn timer rewound. */
   public reset(): void {
     this.crawlers.length = 0;

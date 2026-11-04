@@ -114,6 +114,16 @@ export interface ScorePayload {
   readonly banished: number;
   readonly elapsedSeconds: number;
   readonly bestScore: number;
+  /**
+   * Seconds until the next crawler spawns — the countdown `src/enemies` is
+   * holding right now, not the §5.4 interval it was last reset to.
+   *
+   * Pillar 2 forbids a timer the game holds and the screen never shows, so the
+   * spawner's own clock is carried here rather than being re-derived. The two
+   * are different numbers: the interval is how long the gap *was*, the
+   * countdown is how much of it is left.
+   */
+  readonly nextSpawnIn: number;
 }
 
 /**

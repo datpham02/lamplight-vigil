@@ -20,6 +20,7 @@ import {
   RENDER_WIDTH,
 } from '../config/index';
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
+import { Hud } from '../hud/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import { RestartClock } from './restartClock';
 import { runScore } from './score';
@@ -127,6 +128,13 @@ export class VigilScene extends Phaser.Scene {
     // make something happen. Its sound buffers are synthesised here too, once,
     // for the same reason the textures are.
     this.feedback = new VigilFeedback(this);
+
+    // The readouts and the two overlays. The HUD subscribes itself to the
+    // events below and is not referred to again from here: the scene owns the
+    // run, not what the run looks like. It is constructed before the first
+    // emitRunState() so the title screen is up on the first rendered frame,
+    // and after the feedback layer so it sits above it when depths tie.
+    new Hud(this);
 
     const keyboard = this.input.keyboard;
     if (keyboard !== null) {
@@ -337,6 +345,7 @@ export class VigilScene extends Phaser.Scene {
       banished: this.banished,
       elapsedSeconds: this.elapsedSeconds,
       bestScore: this.bestScore,
+      nextSpawnIn: this.field.secondsToNextSpawn,
     };
     this.events.emit(VIGIL_EVENTS.SCORE_CHANGED, payload);
   }
