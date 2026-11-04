@@ -153,6 +153,21 @@ export type SpeedCurveTuning = Pick<
 >;
 
 /**
+ * What one `src/enemies/Crawler.ts` reads: the §5.2 burn dwell, and nothing else.
+ *
+ * `BURN_DWELL_TIME` is the `clinging-dark` entry of §14.5, which is why a crawler
+ * is handed a run's config rather than importing the constant (GAM-46). The rest
+ * of what a crawler reads — `BURN_DECAY_MULTIPLIER`, `FREEZE_FLASH_TIME`, the two
+ * radii and the lamp's position — is absent because none of it is in the table:
+ * the decay is a multiple of the dwell rather than a duration of its own, the
+ * flash is cosmetic, and §14.7 fences the geometry off as never-weekly.
+ *
+ * A `Pick` rather than the whole record, for the same reason {@link BeamTuning}
+ * is one: a crawler reads one number, and the parameter says so.
+ */
+export type CrawlerTuning = Pick<TuningConfig, 'BURN_DWELL_TIME'>;
+
+/**
  * What `src/beam`'s `BeamModel` reads: the §3.1 transition, the §3.2 cone and the
  * §4.1 power rates. Three of them — `BEAM_WIDE_ANGLE_DEG`, `POWER_DRAIN_RATE` and
  * `POWER_RECHARGE_RATE` — are §14.5 entries, which is why the beam is handed a run's

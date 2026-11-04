@@ -29,6 +29,15 @@
 // `BEAM_FOCUS_HALF_ANGLE_RAD` moved with the wide one regardless: both ends of
 // the §3.1 width interpolation now come from one record, so a cone can never be
 // half shipped and half weekly.
+//
+// GAM-46 carried the same audit out over the *consumers* rather than over the
+// derivations, and found the other half of the defect: `src/enemies/Crawler.ts`
+// imported `BURN_DWELL_TIME` from this file and read it at module level, so
+// `clinging-dark` was modelled by `npm run sim` and played by nobody. The dwell
+// is now a function of a run's config too, and every §14.5 constant reaches the
+// code that uses it in play. `tools/weeklyReach.test.ts` keeps it that way: it
+// fails if any module under `src/`, outside `src/config` and outside a test,
+// imports one of the seven by name.
 
 import type { TuningConfig } from './tuning';
 

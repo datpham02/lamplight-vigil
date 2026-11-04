@@ -18,13 +18,20 @@ import {
   LAMP_Y,
   RENDER_WIDTH,
 } from '../config/index';
+import { BASE_TUNING, type CrawlerTuning } from '../config/tuning';
+import {
+  WEEKLY_MODIFIERS,
+  applyWeeklyModifier,
+  weeklyCellLabel,
+  type WeeklyModifier,
+} from '../config/weeklyModifiers';
 import { Crawler } from './Crawler';
 
 const FRAME = 1 / 60;
 
 /** A crawler that has just spawned on the right edge, with no speed jitter. */
-function freshCrawler(): Crawler {
-  return new Crawler(RENDER_WIDTH - CRAWLER_RADIUS, LAMP_Y, 1);
+function freshCrawler(config?: CrawlerTuning): Crawler {
+  return new Crawler(RENDER_WIDTH - CRAWLER_RADIUS, LAMP_Y, 1, config);
 }
 
 describe('core-loop correctness test (vision.md §3)', () => {
@@ -254,5 +261,111 @@ describe('the catch flash (GAM-12)', () => {
     assert.ok(crawler.freezeFlash > 0, 'the flash outlives the freeze');
     assert.equal(crawler.isFrozen, false, 'but the crawler is not held by it');
     assert.ok(crawler.x < frozenX, 'and it walks again on that same frame (§5.2 rule 1)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A weekly modifier reaches the crawler — GAM-46, design.md §14.5
+// ---------------------------------------------------------------------------
+//
+// The bug these exist against is the one GAM-44 fixed for the beam, one module
+// over: `BURN_DWELL_TIME` was read from `src/config` at module load, so under
+// `clinging-dark` the sim modelled a 0.46 s or 0.52 s burn and the game played
+// the shipped 0.40 s. The sweep then certified a week the game does not play.
+
+/** The §14.5 entry with this `id`, or a failed assertion naming it. */
+function entryById(id: string): WeeklyModifier {
+  const entry = WEEKLY_MODIFIERS.find((candidate) => candidate.id === id);
+  assert.ok(entry !== undefined, `§14.5 has no entry ${id}`);
+  return entry;
+}
+
+/** Seconds of focused cone this crawler takes to be banished from a cold start. */
+function secondsToBanish(crawler: Crawler): number {
+  let dwelled = 0;
+
+  // Two seconds is five times the shipped dwell and well past the top of
+  // `BURN_DWELL_TIME`'s §10.6 safe range, so a crawler that is still alive here
+  // is not burning on any number a week can resolve to.
+  while (dwelled < 2) {
+    dwelled += FRAME;
+    if (crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, true)) {
+      return dwelled;
+    }
+  }
+
+  assert.fail('the crawler never burned away');
+}
+
+describe('a weekly modifier reaches the crawler (§14.5)', () => {
+  const clingingDark = entryById('clinging-dark');
+
+  it('under plain, the burn takes the shipped 0.40 s (§14.8, W3)', () => {
+    const plain = applyWeeklyModifier(BASE_TUNING, entryById('plain'), 0);
+
+    assert.equal(plain.BURN_DWELL_TIME, 0.4, 'the shipped dwell, exactly');
+    assert.equal(secondsToBanish(freshCrawler(plain)), secondsToBanish(freshCrawler()));
+    assert.ok(
+      Math.abs(secondsToBanish(freshCrawler(plain)) - BURN_DWELL_TIME) <= FRAME,
+      'and it is the dwell src/config ships',
+    );
+  });
+
+  // Every value `clinging-dark` can resolve to, so the week the game plays is
+  // checked at each of them rather than at a representative one.
+  for (let valueIndex = 0; valueIndex < clingingDark.values.length; valueIndex += 1) {
+    const label = weeklyCellLabel(clingingDark, valueIndex);
+    const config = applyWeeklyModifier(BASE_TUNING, clingingDark, valueIndex);
+
+    it(`takes the week's dwell, not the shipped one: ${label}`, () => {
+      assert.ok(config.BURN_DWELL_TIME > BURN_DWELL_TIME, 'the dark clings this week');
+
+      const burned = secondsToBanish(freshCrawler(config));
+
+      assert.ok(
+        Math.abs(burned - config.BURN_DWELL_TIME) <= FRAME,
+        `banished at ${burned}s, expected about ${config.BURN_DWELL_TIME}s`,
+      );
+      assert.ok(
+        burned - BURN_DWELL_TIME > FRAME,
+        'and it is not the shipped dwell wearing the week as a label',
+      );
+    });
+
+    it(`shows progress against the week's dwell, not the shipped one: ${label}`, () => {
+      // Pillar 2: `CrawlerRenderer` sweeps the burn arc from `burnFraction`, so
+      // a full arc that banishes nothing — or a banish at three-quarters of one
+      // — is the same failure §14.5 names for a freeze outside the drawn cone.
+      const crawler = freshCrawler(config);
+      const shipped = freshCrawler();
+
+      const frames = Math.round(BURN_DWELL_TIME / FRAME) - 1;
+      for (let i = 0; i < frames; i += 1) {
+        assert.equal(crawler.advance(FRAME, CRAWLER_SPEED_BASE, true, true), false);
+        shipped.advance(FRAME, CRAWLER_SPEED_BASE, true, true);
+      }
+
+      assert.ok(crawler.burnFraction < 1, 'the week is not done burning yet');
+      assert.ok(crawler.burnFraction < shipped.burnFraction, 'it is further behind');
+      assert.ok(
+        Math.abs(crawler.burnFraction - (frames * FRAME) / config.BURN_DWELL_TIME) < 1e-9,
+        'the arc is the dwell it will actually be banished at',
+      );
+    });
+  }
+
+  it('is fixed at spawn, so one crawler cannot play two weeks', () => {
+    const weekly = freshCrawler(applyWeeklyModifier(BASE_TUNING, clingingDark, 1));
+    const shipped = freshCrawler();
+
+    assert.notEqual(secondsToBanish(weekly), secondsToBanish(shipped));
+  });
+
+  it('resolving a cell does not retune the shipped config', () => {
+    const before = { ...BASE_TUNING };
+    applyWeeklyModifier(BASE_TUNING, clingingDark, 1);
+
+    assert.deepEqual({ ...BASE_TUNING }, before);
+    assert.ok(Math.abs(secondsToBanish(freshCrawler()) - BURN_DWELL_TIME) <= FRAME);
   });
 });
