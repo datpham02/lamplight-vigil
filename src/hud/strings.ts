@@ -11,11 +11,13 @@ import {
   DISPLAY_NAME_MIN_LENGTH,
   INPUT_FOCUS_KEY,
   INPUT_FOCUS_POINTER,
+  INPUT_FREE_PLAY_KEY,
   INPUT_RENAME_KEY,
   INPUT_RESTART_KEY,
   POWER_FOCUS_REARM,
 } from '../config/index';
-import type { NameNotice } from '../scenes/events';
+import { RUN_MODE, type NameNotice, type RunMode } from '../scenes/events';
+import type { ResetCountdown } from './layout';
 
 /** One row of the title screen's control table: the key, and what it does. */
 export interface ControlRow {
@@ -31,6 +33,21 @@ export interface ControlRow {
 const FOCUS_BINDING_LABEL = INPUT_FOCUS_POINTER
   ? `HOLD ${INPUT_FOCUS_KEY} OR LEFT MOUSE`
   : `HOLD ${INPUT_FOCUS_KEY}`;
+
+// ---------------------------------------------------------------------------
+// The two modes — docs/design.md §14.8
+// ---------------------------------------------------------------------------
+//
+// One name per mode, used on every screen that names one, so the mode a player
+// chose on the title screen is the mode they read back on game over in exactly
+// the same words.
+
+export const MODE_WEEKLY = 'THE WEEKLY VIGIL';
+export const MODE_FREE_PLAY = 'FREE PLAY';
+
+/** What to call the mode a run is, or was, played in. */
+export const modeName = (mode: RunMode): string =>
+  mode === RUN_MODE.FREE_PLAY ? MODE_FREE_PLAY : MODE_WEEKLY;
 
 // ---------------------------------------------------------------------------
 // Play HUD
@@ -80,18 +97,32 @@ export const TITLE_CONTROLS: readonly ControlRow[] = [
 ];
 
 export const TITLE_NO_BEST = 'NO BEST SCORE YET';
-/** §7: any key *or any click* starts the run. The prompt says both. */
-export const TITLE_PROMPT = 'PRESS ANY KEY OR CLICK TO BEGIN';
+
 /**
- * §15.4 — the same prompt while `INPUT_RENAME_KEY` is being offered, which is
- * the only time any key does *not* start a run.
+ * §7 and §14.8 — any key *or any click* begins a run, and the prompt names
+ * which run that is.
  *
- * The exception is a word, not a footnote, and it is only on screen while it is
- * true: once a rename is on cooldown the key is not offered, every key starts a
- * run again, and the prompt above goes back up. Pillar 2 is the whole reason
- * this is two strings rather than one with a qualifier.
+ * Two things are stated rather than assumed. "Any other key" is true because
+ * `INPUT_FREE_PLAY_KEY` begins the other mode and `INPUT_RENAME_KEY` opens the
+ * name editor; both are named on the rows above this one, so the exceptions are
+ * on screen rather than in this document. And the mode is named, because a
+ * prompt that says only "to begin" on a screen offering two modes is the mode
+ * choice hidden in the one place C3.2 says it must be visible.
  */
-export const TITLE_PROMPT_WITH_RENAME = 'PRESS ANY OTHER KEY OR CLICK TO BEGIN';
+export const TITLE_PROMPT = `PRESS ANY OTHER KEY OR CLICK TO BEGIN ${MODE_WEEKLY}`;
+
+/**
+ * §14.8 — the other mode, and what it is, on the row under the week it is the
+ * alternative to.
+ *
+ * It says what Free Play *is* rather than what it lacks a rank in: there is no
+ * rank on any screen in this build (D4 is pending), and naming one here would
+ * be the game describing something the player cannot see. "No week, no twist"
+ * is the whole of §14.8's "unseeded and unmodified" in words a first-timer
+ * reads once.
+ */
+export const TITLE_FREE_PLAY = `PRESS ${INPUT_FREE_PLAY_KEY} FOR ${MODE_FREE_PLAY} · NO WEEK, NO TWIST, THE HOLLOW AS IT SHIPS`;
+
 export const TITLE_FOOTNOTE = 'Running out of power never ends the run. It only stops the burning.';
 
 /**
@@ -107,6 +138,125 @@ export const displayNameRow = (name: string, renameLockDays: number): string => 
   const days = renameLockDays === 1 ? 'DAY' : 'DAYS';
   return `PLAYING AS ${name} · RENAME AGAIN IN ${renameLockDays} ${days}`;
 };
+
+// ---------------------------------------------------------------------------
+// The week — docs/design.md §14.2, §14.5, §14.8
+// ---------------------------------------------------------------------------
+//
+// Criterion 27 is what this block is written against: *a player who has never
+// read the design document can say what is different this week.* So the week is
+// never an id, a multiplier or a cell label — `clinging-dark x1.30` is how the
+// sweep names a cell, not how a screen does — and it is never a number the
+// player has to interpret.
+//
+// Every sentence below is transcribed from the "On screen" column of the §14.5
+// table, which is the brief for them. Where that column carries a slash — "the
+// crawl is quicker / slower", "sooner / later" — the two readings are split
+// across the entry's two values, in the table's own value order, and
+// `readouts.test.ts` holds each one to the direction its multiplier actually
+// moves. Where the column carries one sentence for a row, both of that row's
+// values say it: `clinging-dark` at x1.15 and at x1.30 are the same sentence
+// because the brief writes one, and inventing a louder one for the harder cell
+// would be this file deciding a design question.
+
+/** One cell's copy: what the week is called, and what it does. */
+export interface WeeklyCellCopy {
+  /** `A restless hollow.` — the name, as a player would say it. */
+  readonly name: string;
+  /** `The crawl is quicker this week.` — the effect, in plain words. */
+  readonly effect: string;
+}
+
+/**
+ * The §14.5 "On screen" column, keyed by entry `id`, one entry per value in
+ * that entry's declared order.
+ *
+ * Keyed by `id` rather than built from the table so that `src/hud` does not
+ * import `src/config`'s table and `src/config` holds no copy (§14.1 rule 4 —
+ * the table is data). The two are held together by a test that walks every cell
+ * the table declares and fails if this map has nothing to say about one.
+ */
+export const WEEKLY_CELL_COPY: Readonly<Record<string, readonly WeeklyCellCopy[]>> = {
+  plain: [{ name: 'A plain vigil.', effect: 'The hollow as it is.' }],
+  'restless-hollow': [
+    { name: 'A restless hollow.', effect: 'The crawl is slower this week.' },
+    { name: 'A restless hollow.', effect: 'The crawl is quicker this week.' },
+  ],
+  'clinging-dark': [
+    { name: 'The dark clings.', effect: 'Burning one takes longer.' },
+    { name: 'The dark clings.', effect: 'Burning one takes longer.' },
+  ],
+  'thin-wick': [
+    { name: 'A thin wick.', effect: 'The lamp recovers slowly.' },
+    { name: 'A thin wick.', effect: 'The lamp recovers slowly.' },
+  ],
+  'hungry-flame': [
+    { name: 'A hungry flame.', effect: 'Focusing costs more.' },
+    { name: 'A hungry flame.', effect: 'Focusing costs more.' },
+  ],
+  'crowded-threshold': [
+    { name: 'A crowded threshold.', effect: 'They come sooner at first.' },
+    { name: 'A quiet threshold.', effect: 'They come later at first.' },
+  ],
+  'narrow-lantern': [
+    { name: 'A narrow lantern.', effect: 'The wide beam holds less of the field.' },
+    { name: 'A broad lantern.', effect: 'The wide beam holds more of the field.' },
+  ],
+  'one-axis': [
+    { name: 'The long dark.', effect: 'They come from the sides.' },
+    { name: 'Over the top.', effect: 'They come from above and below.' },
+  ],
+};
+
+/**
+ * What this week is called and what it does, as one sentence pair.
+ *
+ * A cell with no copy falls back to its own `id`, so a table edited ahead of
+ * this file still *names* the week rather than leaving the row blank — pillar 2
+ * would rather the screen said `restless-hollow` than nothing at all. The test
+ * that walks the table is what keeps that path unreachable in a shipped build.
+ */
+export const weeklyCellLine = (entryId: string, valueIndex: number): string => {
+  const copy = WEEKLY_CELL_COPY[entryId]?.[valueIndex];
+
+  return copy === undefined ? entryId : `${copy.name} ${copy.effect}`;
+};
+
+/**
+ * §14.2 — how long is left of this week, as a countdown and never as a clock
+ * time: an unqualified hour is hidden state in a friendlier font, and a
+ * qualified one would put a time zone on the title screen.
+ *
+ * Two units at most, largest first, so the figure is read at a glance rather
+ * than parsed. The last minute of a week says so in words instead of counting
+ * down to a zero the player would be left staring at.
+ */
+export const weekResetLine = (left: ResetCountdown): string => {
+  if (left.days > 0) {
+    return `Resets in ${left.days}d ${left.hours}h`;
+  }
+
+  if (left.hours > 0) {
+    return `Resets in ${left.hours}h ${left.minutes}m`;
+  }
+
+  if (left.minutes > 0) {
+    return `Resets in ${left.minutes}m`;
+  }
+
+  return 'Resets within the minute';
+};
+
+/**
+ * The whole week, on one row: which week it is, what it does, and when it ends.
+ *
+ * The same row on the title screen and on the game-over screen, composed once
+ * here, because criterion 27 asks for the modifier "in plain words, with the
+ * week key" on both — and a player who read it before the run should recognise
+ * it after, not have to match two differently-worded lines to each other.
+ */
+export const weekLine = (key: string, cell: string, reset: string): string =>
+  `${key} · ${cell} · ${reset}`;
 
 // ---------------------------------------------------------------------------
 // Name editor
@@ -174,9 +324,17 @@ export const GAME_OVER_HEADING = 'A CRAWLER REACHED THE LAMP';
 export const GAME_OVER_SCORE_LABEL = 'SCORE';
 export const GAME_OVER_PROMPT = `PRESS ${INPUT_RESTART_KEY} TO LIGHT IT AGAIN`;
 
-/** Time survived and crawlers banished, on one line under the frozen hollow. */
-export const gameOverStatsLine = (time: string, banished: string): string =>
-  `${LABEL_TIME} ${time} · ${LABEL_BANISHED} ${banished}`;
+/**
+ * The mode, the time survived and the crawlers banished, on one line under the
+ * frozen hollow.
+ *
+ * §14.8 requires the mode to be named here: both modes keep the same local best
+ * score, so one figure now spans two configurations and an unlabelled number is
+ * state the screen is not showing. It leads the row rather than trailing it —
+ * it is the thing that says what the two figures beside it are worth.
+ */
+export const gameOverStatsLine = (mode: RunMode, time: string, banished: string): string =>
+  `${modeName(mode)} · ${LABEL_TIME} ${time} · ${LABEL_BANISHED} ${banished}`;
 
 /** Said only when this run actually beat the stored best, never on equalling it. */
 export const newBestLine = (best: string): string => `NEW BEST ${best}`;

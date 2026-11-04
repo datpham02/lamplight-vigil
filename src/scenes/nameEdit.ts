@@ -11,12 +11,21 @@
 // an editing session can change, which is what makes "there is no name step on
 // the restart path" something you can read rather than something you hope.
 
-import { DISPLAY_NAME_MAX_LENGTH, INPUT_RENAME_KEY } from '../config/index';
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  INPUT_FREE_PLAY_KEY,
+  INPUT_RENAME_KEY,
+} from '../config/index';
 import { checkDisplayName, isNameCharacter, type NameRejection } from './displayName';
 
 // ---------------------------------------------------------------------------
-// Where a keystroke goes — §15.4, §15.5
+// Where a keystroke goes — §15.4, §15.5, §14.8
 // ---------------------------------------------------------------------------
+//
+// Every key the game hears is routed by the one function below, including the
+// §14.8 mode choice, which lives here rather than in a second router for the
+// reason the name step did: C3.2 is a claim about what a keystroke *cannot*
+// reach off the title screen, and one function is a claim a test can settle.
 
 /** What the game does with one key press, before anything acts on it. */
 export const KEY_ACTION = {
@@ -24,6 +33,8 @@ export const KEY_ACTION = {
   EDIT_NAME: 'edit-name',
   /** Opens the name editor. TITLE only, and only while a rename is available. */
   OPEN_NAME_EDITOR: 'open-name-editor',
+  /** §14.8 — begins a Free Play run. TITLE only; inert everywhere else. */
+  START_FREE_PLAY: 'start-free-play',
   /** On to the run: starts one from TITLE, lifts a §2.5 pause, or does nothing. */
   RUN_INPUT: 'run-input',
 } as const;
@@ -39,20 +50,31 @@ export interface KeyContext {
 }
 
 /**
- * The whole of what §15 does to the game's input, as one function.
+ * The whole of what §15 and the §14.8 mode choice do to the game's input, as
+ * one function.
  *
- * It is a function rather than three branches inside the scene so that
- * condition C3.2 — no name step between the lose state and the next playable
- * frame — is something a test asserts instead of something the scene is trusted
- * to keep doing. Off the title screen there is no key that reaches the name.
+ * It is a function rather than branches inside the scene so that condition
+ * C3.2 — no name step and no mode step between the lose state and the next
+ * playable frame — is something a test asserts instead of something the scene
+ * is trusted to keep doing. Off the title screen there is no key that reaches
+ * the name and none that chooses a mode: every one of them goes to the run,
+ * where `R` restarts the mode just played and the rest do nothing.
  */
 export function keyAction(context: KeyContext, key: string): KeyAction {
   if (context.editing) {
     return KEY_ACTION.EDIT_NAME;
   }
 
-  if (context.onTitle && context.renameAvailable && key.toUpperCase() === INPUT_RENAME_KEY) {
+  if (!context.onTitle) {
+    return KEY_ACTION.RUN_INPUT;
+  }
+
+  if (context.renameAvailable && key.toUpperCase() === INPUT_RENAME_KEY) {
     return KEY_ACTION.OPEN_NAME_EDITOR;
+  }
+
+  if (key.toUpperCase() === INPUT_FREE_PLAY_KEY) {
+    return KEY_ACTION.START_FREE_PLAY;
   }
 
   return KEY_ACTION.RUN_INPUT;

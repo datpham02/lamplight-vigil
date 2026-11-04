@@ -16,6 +16,7 @@ import {
   RESTART_BUDGET_FRAMES,
   RESTART_BUDGET_SECONDS,
 } from '../config/index';
+import { freePlayRun, weeklyRunAt } from '../weekly/index';
 import { fitsRestartBudget, RestartClock, worstCaseRestartSeconds } from './restartClock';
 
 /** The frame time criterion 3 holds the game to. */
@@ -131,5 +132,52 @@ describe('the restart stopwatch (GAM-12)', () => {
 
     assert.ok(measured);
     assert.equal(RestartClock.withinBudget(measured), false);
+  });
+});
+
+describe('what the §14.8 mode choice put on the restart path', () => {
+  // Criterion 29 asks for the restart to be measured in both modes, and the
+  // two modes differ on this path by exactly one thing: a weekly restart
+  // resolves its week on the way through and a Free Play one does not. The
+  // in-browser number is QA's, taken from the dev console, which now names the
+  // mode; this is the part that can be measured without a browser.
+  //
+  // Everything else on the path is unchanged. `startRun` still loads nothing,
+  // restarts no scene and reads no storage: the week is pure arithmetic on a
+  // clock reading (§14.2), which is also why §14.8 can promise that a weekly
+  // run never waits on anything.
+
+  const RESTARTS = 1000;
+
+  /**
+   * A thousand restarts' worth of week resolution, held to *one* restart's
+   * budget — so a single restart may spend at most a thousandth of its budget
+   * here. Deliberately a long way above what it costs (a few tens of
+   * microseconds), because the useful failure is an order of magnitude, not a
+   * busy machine.
+   */
+  const CEILING_MS = RESTART_BUDGET_SECONDS * MS_PER_SECOND;
+
+  it('resolves a thousand weekly runs inside one restart’s budget', () => {
+    const started = performance.now();
+
+    for (let i = 0; i < RESTARTS; i += 1) {
+      // A different instant each time, so no cache could flatter the figure.
+      const setup = weeklyRunAt(Date.UTC(2026, 0, 5) + i * MS_PER_SECOND);
+      assert.ok(setup.week !== null, 'a weekly run resolves a week');
+    }
+
+    const elapsed = performance.now() - started;
+
+    assert.ok(
+      elapsed < CEILING_MS,
+      `${RESTARTS} week resolutions took ${elapsed.toFixed(1)} ms, over the ${CEILING_MS} ms ceiling`,
+    );
+  });
+
+  it('resolves nothing at all for a Free Play run', () => {
+    const setup = freePlayRun();
+
+    assert.equal(setup.week, null, 'no week, so nothing to resolve and nothing to name');
   });
 });
