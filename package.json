@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "sim": "node --import tsx tools/throughput-sim.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\" \"tools/**/*.test.ts\""
   },
   "dependencies": {
     "phaser": "^3.90.0"

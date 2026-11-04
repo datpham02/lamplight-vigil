@@ -71,10 +71,13 @@ describe('difficulty ramps (design.md §5.4)', () => {
   });
 
   it('reproduces the §11.1 crossings the run-length target is derived from', () => {
-    // 1 / interval(t) is the spawn rate. §11.1 puts first-timer capacity
-    // (0.31/s) at about t = 55 s and practised capacity (0.60/s) at about 218 s.
-    assert.ok(Math.abs(1 / spawnInterval(55) - 0.31) < 0.01);
-    assert.ok(Math.abs(1 / spawnInterval(218) - 0.6) < 0.01);
+    // 1 / interval(t) is the spawn rate. After the GAM-17 rebalance §11.1 puts
+    // first-timer capacity (0.323/s) at about t = 9 s and practised capacity
+    // (0.595/s) at about 184 s. tools/throughput-sim.ts derives both from the
+    // same curve and asserts the whole §11.1 table; this is the cheap guard that
+    // the curve itself has not moved.
+    assert.ok(Math.abs(1 / spawnInterval(9) - 0.323) < 0.01);
+    assert.ok(Math.abs(1 / spawnInterval(184) - 0.595) < 0.01);
   });
 
   it('ramps speed linearly and caps it', () => {

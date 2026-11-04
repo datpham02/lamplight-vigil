@@ -213,8 +213,16 @@ export const POWER_START = 100;
 /** §4.1 — power per second spent in NARROWING and FOCUSED. Spike parameter. */
 export const POWER_DRAIN_RATE = 26;
 
-/** §4.1 — power per second regained in WIDENING and WIDE. Spike parameter. */
-export const POWER_RECHARGE_RATE = 17;
+/**
+ * §4.1 — power per second regained in WIDENING and WIDE. Spike parameter.
+ *
+ * GAM-17: 17 -> 22. With `POWER_DRAIN_RATE` it sets the sustainable focus duty
+ * — `POWER_RECHARGE_RATE / (POWER_DRAIN_RATE + POWER_RECHARGE_RATE)`, 39.5% ->
+ * 45.8% (§11.3) — and therefore kill capacity, which rose 15.9% across all three
+ * skill tiers (§11.1). Subject to the §10.7 asymptote invariant, checked by
+ * `tools/throughput-sim.ts`.
+ */
+export const POWER_RECHARGE_RATE = 22;
 
 /**
  * §4.2 — after power hits zero, focus is ignored until power recovers to here.
@@ -263,8 +271,16 @@ export const CRAWLER_BURN_COLOR = 0xffb066;
 // §10.6 Freeze and burn
 // ---------------------------------------------------------------------------
 
-/** §5.2 — seconds in the focused cone needed to banish a crawler. Spike parameter. */
-export const BURN_DWELL_TIME = 0.45;
+/**
+ * §5.2 — seconds in the focused cone needed to banish a crawler. Spike parameter.
+ *
+ * GAM-17: 0.45 -> 0.40. With `BEAM_TRANSITION_TIME` it sets the drain cost of one
+ * banish (14.8 -> 13.5 power, §11.3), which is the rest of the capacity rise and
+ * is tilted toward the skilled tiers. 0.40 is where the cut stops: at 0.35 the
+ * shortest power-sustainable banish cycle falls to 1.03 s and the §10.7 asymptote
+ * invariant keeps 2% of headroom against `SPAWN_INTERVAL_MIN` instead of 13%.
+ */
+export const BURN_DWELL_TIME = 0.4;
 
 /**
  * §5.2 — dwell lost per second when a crawler is not being burned, as a multiple
@@ -278,18 +294,50 @@ export const BURN_DECAY_MULTIPLIER = 1.5;
 // §10.7 Spawning
 // ---------------------------------------------------------------------------
 
-/** §5.4 — seconds between spawns at t = 0. */
-export const SPAWN_INTERVAL_START = 4.0;
+/**
+ * §5.4 — seconds between spawns at t = 0. Owns how busy the opening is: it is
+ * the only term that acts at `t = 0`.
+ *
+ * GAM-17: 4.0 -> 3.2. The value at which three crawlers are on screen by 47 s
+ * while a first-timer's backlog is still under 1 at 45 s (§11.1).
+ */
+export const SPAWN_INTERVAL_START = 3.2;
 
-/** §5.4 — floor on the spawn interval. A safety stop, not a balance value. */
-export const SPAWN_INTERVAL_MIN = 0.85;
+/**
+ * §5.4 — floor on the spawn interval. **Owns how hard the game ever gets.**
+ *
+ * GAM-17: 0.85 -> 1.00, and it is now a balance value, not a safety stop (§5.4,
+ * §10.7). Past the floor the spawn term stops growing and crawler speed has
+ * already capped, so this is the moment the game stops getting harder, for good
+ * — the only thing in the design that bounds difficulty at all.
+ *
+ * ASYMPTOTE INVARIANT (§10.7), binding this to the power economy and the burn:
+ *
+ *     SPAWN_INTERVAL_MIN
+ *       < (BEAM_TRANSITION_TIME + BURN_DWELL_TIME)
+ *         * (POWER_DRAIN_RATE + POWER_RECHARGE_RATE) / POWER_RECHARGE_RATE
+ *
+ * The right-hand side is the shortest power-sustainable banish cycle — a hard
+ * ceiling on kill rate that no human reaches. The floor must sit below it, so
+ * that the game's hardest state still out-produces perfect play and the run
+ * always ends. At these values: 1.00 < 1.13 s, a margin of 13%. Each of the four
+ * terms is individually safe inside its own range while the product is not, so
+ * check it as one expression — `tools/throughput-sim.ts` assertion B3 does.
+ */
+export const SPAWN_INTERVAL_MIN = 1.0;
 
 /**
  * §5.4 — the spawn interval is multiplied by this per second survived. The most
- * sensitive value in the table: it sets both difficulty crossings at once, and
- * §11.1's run-length table must be re-derived before it is changed.
+ * sensitive value in the table: it sets all three difficulty crossings at once,
+ * and §11.1's run-length table must be re-derived before it is changed.
+ *
+ * GAM-17: 0.996 -> 0.9965 — *shallower*, against the instinct that a harder game
+ * needs a steeper ramp. The slope sets the distance between the first-timer and
+ * the practised crossing, and buys a 70 s slide instead of a 30 s collapse. The
+ * safe range narrowed to 0.9950–0.9990 with it: anything below 0.9950
+ * reintroduces the late-game cliff this rebalance removed.
  */
-export const SPAWN_INTERVAL_DECAY_PER_SECOND = 0.996;
+export const SPAWN_INTERVAL_DECAY_PER_SECOND = 0.9965;
 
 /** The four edges a crawler can enter from. */
 export type SpawnEdge = 'top' | 'bottom' | 'left' | 'right';
@@ -335,7 +383,9 @@ export const MAX_CRAWLERS = 16;
  * Retune the two only against each other, and re-derive the crossover: the ratio
  * puts patience ahead of aggression until the spawn rate reaches
  * `SCORE_PER_SECOND_SURVIVED / SCORE_PER_BANISH` spawns per second, which §11.1
- * places at about t = 120 s.
+ * places at about t = 70 s. Neither value changed in GAM-17; the crossover moved
+ * from ~120 s on its own, because it is a property of the spawn curve rather than
+ * of the weights, and 70 s now falls inside the modelled median first run (§8).
  */
 export const SCORE_PER_SECOND_SURVIVED = 10;
 export const SCORE_PER_BANISH = 25;
