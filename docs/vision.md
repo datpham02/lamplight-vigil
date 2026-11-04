@@ -105,25 +105,36 @@ score is visible on the title, play and game-over screens, and that it survives 
 page reload (`localStorage`). Play ten runs as a first-time player and confirm the
 median lands in 45–120 s. Any of the three failing is a pillar failure.
 
-### [PROPOSAL] A fourth pillar candidate — "Width is the whole economy"
+### Considered and not adopted — "Width is the whole economy"
 
-**Not an approved pillar. Not in force. Game Director decision.** GAM-1 names
-exactly three pillars and this is not one of them; it is recorded here because the
-wide/focused trade-off is the thing the design work keeps needing a veto for.
+**Ruling: not adopted as a pillar.** Decided by `game-director` in the review of
+`docs/design.md` (GAM-8). This is settled and is no longer an open Game Director
+decision. There are three pillars, and the three above are all of them.
 
-The proposal: wide holds, focused burns, focusing costs power, releasing recharges
-it — and that single trade-off is the game's entire resource system. Everything
-the player wants is paid for in beam width and power, never in a separate
-currency. It would forbid ammo, cooldowns, charges, pickups and upgrade currencies
-outright, rather than leaving them to be argued case by case under pillar 1.
+**What was proposed.** Wide holds, focused burns, focusing costs power, releasing
+recharges it — and that single trade-off is the game's entire resource system.
+Everything the player wants is paid for in beam width and power, never in a
+separate currency. As a pillar it would have forbidden ammo, cooldowns, charges,
+pickups and upgrade currencies outright, rather than leaving them to be argued
+case by case under pillar 1.
 
-Its QA check, if adopted: hold a wide beam on a crawler for 30 seconds — it must
-stay frozen, must not die, and power must not fall from freezing alone. Focus onto
-that same crawler: it must die after the dwell, and the power readout must visibly
-drop during the burn, then recover on release.
+**Why it was not adopted.**
 
-Until the Game Director rules, that check is still worth running as a plain
-correctness test of the concept's core loop; it just carries no veto.
+1. **Procedural.** `docs/concept.md` §5 says "Three design pillars" and is
+   Board-approved. A fourth pillar is a change to the concept, and therefore the
+   Board's call — not the Game Director's to make alone.
+2. **Substantive.** It is redundant. Pillar 1 already forbids ammo, cooldowns,
+   charges and pickups, because none of them can be expressed as aiming or
+   shaping the beam. `docs/design.md` ran the full length of the MVP and never
+   needed a fourth veto.
+
+**Its QA check survives, carrying no veto.** Keep it as an ordinary correctness
+test of the core loop in §4 below — not as a pillar check. Hold a wide beam on a
+crawler for 30 seconds: it must stay frozen, must not die, and power must not fall
+from freezing alone. Then focus onto that same crawler: it must die after the
+dwell, and the power readout must visibly drop during the burn, then recover on
+release. A failure here is a core-loop bug to be filed against the build. It is
+not a pillar failure, and nothing about it carries pillar authority.
 
 ## 4. Core loop
 
