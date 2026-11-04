@@ -1284,7 +1284,7 @@ task OV-1.
 *Amended 2026-11-04 (GAM-43), on the Board's ruling "Keep UTC+7": §14.2 specified
 the week boundary at plain UTC, which deviated from GAM-16 decision **D6**. §14.2
 and the "Begins" column of §14.4 are re-derived at the fixed offset UTC+7;
-criteria 18, 26 and 40 move with them. No other part of this section changes, and
+criteria 18, 26 and 42 move with them. No other part of this section changes, and
 §14.4's entry and value columns are unchanged — §14.4 says why.*
 
 *Placed after §13 rather than before it because `src/config`, `src/scenes` and
@@ -1995,7 +1995,7 @@ across the whole document.
 | 28 | Free Play is unseeded, unranked and unmodified | Play Free Play on a week whose modifier is `clinging-dark ×1.30` and confirm a burn takes the shipped 0.40 s, no rank appears and no submission is attempted |
 | 29 | The restart path never grows a step | `R` from game-over restarts the mode just played, with no mode prompt, inside the §12 criterion 8 budget. Measure it in both modes |
 | 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. The §14.5 per-cell table lists the expected value for each — fifteen rows for fifteen cells, including the four that are expected to equal `plain` exactly |
-| 40 | The week boundary is written down exactly once | Assert `WEEK_RESET_UTC_OFFSET_HOURS === 7`, citing §14.2 and D6, so the value cannot drift silently. Then search `src/`, `tools/` and the tests for a second copy of the boundary — a bare `7 * 3600`, a `17:00`, a `Sunday`, or any `getTimezoneOffset`. The only arithmetic that may touch the offset is §14.2's, and nothing may consult the host's zone |
+| 42 | The week boundary is written down exactly once | Assert `WEEK_RESET_UTC_OFFSET_HOURS === 7`, citing §14.2 and D6, so the value cannot drift silently. Then search `src/`, `tools/` and the tests for a second copy of the boundary — a bare `7 * 3600`, a `17:00`, a `Sunday`, or any `getTimezoneOffset`. The only arithmetic that may touch the offset is §14.2's, and nothing may consult the host's zone |
 
 ---
 
