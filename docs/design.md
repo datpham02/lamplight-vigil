@@ -1397,14 +1397,50 @@ function blockOrder(block: number): readonly string[] {
   const order = [...rawBlockOrder(block)];
   if (block > 0) {
     const previous = rawBlockOrder(block - 1);
-    // Rotate left by one if this block would open on the entry the last one
-    // closed with. One rotation always fixes it: entries are unique inside a
-    // permutation, so the second element cannot also be the colliding one.
-    if (order[0] === previous[previous.length - 1]) order.push(order.shift()!);
+    // Swap the first two entries if this block would open on the entry the last
+    // one closed with. The swap never touches order[N - 1], so a block's closing
+    // entry is always rawBlockOrder(block)[N - 1] — which is exactly what the
+    // test above reads. See "Why a swap and not a rotation". Requires N >= 3.
+    if (order[0] === previous[previous.length - 1]) {
+      [order[0], order[1]] = [order[1], order[0]];
+    }
   }
   return order;
 }
 ```
+
+**Why a swap and not a rotation.** The obvious fix-up — rotate the block left by
+one — is wrong, in a way that is worth recording because it is not visible by
+reading and does not show up in a short measurement.
+
+A left rotation moves `order[0]` to the end, so a rotated block's closing entry is
+`rawBlockOrder(b)[0]`, not `rawBlockOrder(b)[N - 1]`. The next block tests against
+`rawBlockOrder(b - 1)[N - 1]`, so whenever block `b - 1` rotated, the test reads
+the wrong element and fails two ways: it misses a genuine collision when
+`raw(b)[0] === raw(b - 1)[0]`, and it rotates needlessly when
+`raw(b)[0] === raw(b - 1)[N - 1]`, which can hand the opening slot to an entry that
+collides anyway. Testing `blockOrder(b - 1)` instead would be correct but would
+chain every block back to the epoch, costing property 3.
+
+A swap of the first two elements is the fix because it leaves `order[N - 1]`
+alone. The quantity the next block tests becomes rotation-independent, so the
+recursion never has to happen and `blockOrder` stays O(1) and stateless. The new
+opener `raw(b)[1]` cannot equal `raw(b)[0]` — a block is a permutation — so the
+collision is genuinely closed rather than moved.
+
+**Measured, over 99 999 block boundaries:** the rotation leaks **1838** repeated
+weeks (one boundary in 54); the swap leaks **0**. The swapped order is still a
+permutation and its closing entry still equals `rawBlockOrder(b)[N - 1]` at every
+one of the first 20 000 blocks.
+
+**This is why criterion 21 counts boundaries rather than sampling weeks.** The
+rotation's first leak is at block 128 — weeks 1023 and 1024, about nineteen years
+past the epoch — so a 520-week sample sees zero instances and reports the property
+as holding. It is not a rare bug that a longer sample would have caught; it is a
+bug that *this particular seed* hides for nineteen years, and bumping the schedule
+version in §14.3 re-rolls that dice and may put the first leak in week 20. A
+property guaranteed "by construction" must be tested as a property, not estimated
+from a sample.
 
 **Three properties this buys, none of which an independent weekly draw has:**
 
@@ -1412,7 +1448,9 @@ function blockOrder(block: number): readonly string[] {
    the eight entries comes up 65 times — exactly 12.5%, not approximately.
    Independent draws gave 10.2% to 14.6% over the same span.
 2. **No two consecutive weeks share an entry.** Guaranteed by construction, not by
-   luck. An independent draw repeats 1 week in 8 and produced a run of four
+   luck — the swap above is what makes that sentence true, and criterion 21 is
+   what keeps it true. Verified over 99 999 consecutive block boundaries: zero
+   repeats. An independent draw repeats 1 week in 8 and produced a run of four
    identical weeks inside 520. "The twist did not change this week" is the single
    worst thing a weekly feature can say, and it is now unrepresentable.
 3. **It is O(1) and stateless.** The answer depends on the clock and nothing else:
@@ -1434,6 +1472,14 @@ approval date, at the table in §14.5:
 | `2026-W52` | 50 | `crowded-threshold` | ×1.06 |
 | `2026-W53` | 51 | `hungry-flame` | ×1.20 |
 | `2027-W01` | 52 | `one-axis` | `long-dark` |
+
+These ten weeks span blocks 5 and 6. **Re-derived under the corrected
+`blockOrder`, the vector is unchanged**: neither block collides with its
+predecessor, so neither swaps, and all ten rows resolve identically under the old
+and the new rule. Block 4 closes on `narrow-lantern` and block 5 opens on
+`thin-wick`; block 5 closes on `hungry-flame` and block 6 opens on
+`narrow-lantern`. The vector above is therefore correct against the code in this
+section, not inherited from the draft it replaces.
 
 **Editing the table changes history.** Adding, removing or renaming an entry
 changes `N` and every permutation after it, so past weeks resolve differently than
@@ -1477,10 +1523,48 @@ exactly.
 | `over-the-top` | 0.40 | 0.40 | 0.10 | 0.10 |
 
 **Modelled run lengths are from the shipped simulation**, one cell at a time at
-`dt = 0.01`, not from a second opinion about the model. Practised-tier run length
-for the same cells, which criterion B9 also bounds: 250.3 / 250.3 / 231.4 / 213.8 /
-235.6 / 227.3 / 237.0 / 224.4 / 232.7 / 266.9 / 245.3 / 254.9 / 250.3 s — every one
-over the 180 s floor, the lowest being `clinging-dark ×1.30` at 213.8 s.
+`dt = 0.01`, not from a second opinion about the model.
+
+**Practised-tier run length, all fifteen cells**, which criterion B9 also bounds
+and criterion 30 checks. Listed per cell rather than per displayed row, so the
+count matches the fifteen the sweep reports:
+
+| Cell | First-timer | Practised |
+| --- | --- | --- |
+| `plain ×1.00` | 79.1 s | 250.3 s |
+| `restless-hollow ×0.90` | 79.1 s | 250.3 s |
+| `restless-hollow ×1.10` | 79.1 s | 250.3 s |
+| `clinging-dark ×1.15` | 68.7 s | 231.4 s |
+| `clinging-dark ×1.30` | 59.9 s | 213.8 s |
+| `thin-wick ×0.90` | 64.7 s | 235.6 s |
+| `thin-wick ×0.85` | 57.9 s | 227.3 s |
+| `hungry-flame ×1.10` | 66.0 s | 237.0 s |
+| `hungry-flame ×1.20` | 55.7 s | 224.4 s |
+| `crowded-threshold ×0.94` | 61.9 s | 232.7 s |
+| `crowded-threshold ×1.06` | 95.7 s | 266.9 s |
+| `narrow-lantern ×0.85` | 73.8 s | 245.3 s |
+| `narrow-lantern ×1.15` | 83.9 s | 254.9 s |
+| `one-axis long-dark` | 79.1 s | 250.3 s |
+| `one-axis over-the-top` | 79.1 s | 250.3 s |
+
+Every one is over the 180 s floor, the lowest being `clinging-dark ×1.30` at
+213.8 s.
+
+**The four cells that read exactly as the base config are model-invisible, not
+unmeasured.** `restless-hollow` (both values) and `one-axis` (both values) change
+constants the run-length model does not integrate over — §14.6 says why, and for
+`one-axis` it is the right answer rather than a gap. Each was run through the sim
+individually and returned 79.08 s / 250.32 s / 332.42 s, identical to base to the
+reported precision. QA should expect those four rows to match `plain` exactly; a
+row that *differs* is the thing to report.
+
+**`hungry-flame ×1.20` at 55.7 s is the tightest cell in the table** — 0.7 s above
+the 55 s band floor. It is inside the band and correct by the band's own logic
+(§14.6), but it has the least room of any cell, so it is the **first to revisit
+once GAM-15 refits `B`**, ahead of `restless-hollow`, whose bound is a judgement
+rather than a measurement. If a refit moves it below 55 s, it comes back to
+`game-director` as a bound question, per §14.9 — it does not get nudged to ×1.18
+in place.
 
 **Where the derived constants are concerned.** `src/config` computes
 `BEAM_WIDE_HALF_ANGLE_RAD` from `BEAM_WIDE_ANGLE_DEG` at module load. A modifier
@@ -1576,9 +1660,11 @@ change — three crawlers on screen at **29 s** instead of 47 s.
 #### What the model is blind to, and what bounds those entries instead
 
 The run-length model integrates arrivals against a flat kill capacity. Two entries
-do not appear in that arithmetic at all, and the sweep will correctly report their
-run lengths as unchanged. That is not a gap to paper over; for one of them it is
-the right answer, and for the other it is a bound stated by hand.
+— four cells — do not appear in that arithmetic at all, and the sweep will
+correctly report their run lengths as unchanged. All four were run through the sim
+individually to confirm that rather than assume it; they return the base figures
+exactly (§14.5). That is not a gap to paper over: for one entry it is the right
+answer, and for the other it is a bound stated by hand.
 
 - **`one-axis` — correctly invisible.** §11.1 lists `SPAWN_EDGE_WEIGHTS` among the
   values that are "placement and grace, not pressure"; the weights appear nowhere
@@ -1700,7 +1786,7 @@ across the whole document.
 | 18 | The week key is a pure function of the UTC clock, per ISO-8601 | Unit test over the nine vectors in §14.2, including the `2026-W53` → `2027-W01` boundary. Freeze the clock; no other input |
 | 19 | The seed functions match the published vectors | Unit test over the five `fnv1a32` vectors in §14.3. A mismatch means a future server will disagree with the client |
 | 20 | A week resolves with no network access | Block the network at the browser, load the game, and confirm the title screen names the week and its modifier. No request is made and nothing is awaited |
-| 21 | Every entry appears exactly once per eight-week block, and no two consecutive weeks share one | Iterate 520 weeks from `WEEKLY_EPOCH_UTC_MS` in a test: each of the eight `id`s appears exactly 65 times, and the longest run of one `id` is 1 |
+| 21 | Every entry appears exactly once per eight-week block, and no two consecutive weeks share one | **Two assertions, and the second must not be a sample.** (a) *Count:* iterate 520 weeks from `WEEKLY_EPOCH_UTC_MS`; each of the eight `id`s appears exactly 65 times and the longest run of one `id` is 1. (b) *Boundary, as a property:* for every block `b` in `1 .. 10_000`, assert `blockOrder(b)[0] !== blockOrder(b - 1)[N - 1]`, and assert `blockOrder(b)` is a permutation of all `N` ids. Sampling 520 weeks passes on a schedule whose first repeat is nineteen years out (§14.4), so (a) alone is not evidence for this criterion |
 | 22 | The schedule matches the published vector | The ten weeks in §14.4 resolve to exactly those entries and values |
 | 23 | Every resolved value is inside its constant's §10 safe range | Sweep assertion W1 |
 | 24 | The sweep fails loudly on a bad cell | Temporarily add a cell outside the band (for example `SPAWN_INTERVAL_START ×1.15`, which breaks B5), confirm `npm run sim -- --modifiers` exits non-zero and names the cell and the assertion, then revert it |
@@ -1709,4 +1795,4 @@ across the whole document.
 | 27 | The active modifier is not hidden state | Its name and its effect are on the title screen before the run and on the game-over screen after it, in plain words, with the week key. A player who has never read this document can say what is different this week |
 | 28 | Free Play is unseeded, unranked and unmodified | Play Free Play on a week whose modifier is `clinging-dark ×1.30` and confirm a burn takes the shipped 0.40 s, no rank appears and no submission is attempted |
 | 29 | The restart path never grows a step | `R` from game-over restarts the mode just played, with no mode prompt, inside the §12 criterion 8 budget. Measure it in both modes |
-| 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. §14.5 lists the expected values |
+| 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. The §14.5 per-cell table lists the expected value for each — fifteen rows for fifteen cells, including the four that are expected to equal `plain` exactly |
