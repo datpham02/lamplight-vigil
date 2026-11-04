@@ -18,7 +18,18 @@ import {
   POWER_START,
   RENDER_HEIGHT,
   RENDER_WIDTH,
+  beamFocusHalfAngleRad,
+  beamWideHalfAngleRad,
 } from '../config/index';
+import { BASE_TUNING } from '../config/tuning';
+import {
+  WEEKLY_MODIFIERS,
+  applyWeeklyModifier,
+  weeklyCellLabel,
+  weeklyCells,
+  type WeeklyConstant,
+  type WeeklyModifier,
+} from '../config/weeklyModifiers';
 import { BEAM_STATE } from '../scenes/events';
 import { BeamModel } from './BeamModel';
 
@@ -326,5 +337,175 @@ describe('the beam glow (GAM-12)', () => {
 
     assert.equal(onAxis, true);
     assert.equal(pastReach, false, 'reach is the range, not the glow');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A weekly modifier reaches the beam — GAM-44, design.md §14.5
+// ---------------------------------------------------------------------------
+//
+// The bug these exist against: `BEAM_WIDE_HALF_ANGLE_RAD` was derived from
+// `BEAM_WIDE_ANGLE_DEG` once at module load, so a `narrow-lantern` week drew its
+// cone at the weekly angle and froze at the shipped one — light that holds
+// nothing, which §14.5 calls a pillar 2 failure.
+
+/** What a §14.5 constant does to the beam, if anything. */
+type BeamEffect = 'cone' | 'power' | 'none';
+
+/**
+ * Every constant the table may touch, and what the beam reads it for.
+ *
+ * A `Record` over the whole `WeeklyConstant` union on purpose: widening the
+ * table (§14.5 is closed, but it is edited at a block boundary) stops compiling
+ * here until someone states whether the beam reads the new constant. That review
+ * is exactly what the half-angle bug slipped past.
+ *
+ * `BURN_DWELL_TIME` is `'none'` because the *beam* does not read it — it decides
+ * nothing about the cone or the power economy. `src/enemies` owns the dwell.
+ */
+const BEAM_EFFECT: Readonly<Record<WeeklyConstant, BeamEffect>> = {
+  BEAM_WIDE_ANGLE_DEG: 'cone',
+  POWER_DRAIN_RATE: 'power',
+  POWER_RECHARGE_RATE: 'power',
+  BURN_DWELL_TIME: 'none',
+  CRAWLER_SPEED_BASE: 'none',
+  SPAWN_INTERVAL_START: 'none',
+  SPAWN_EDGE_WEIGHTS: 'none',
+};
+
+/** The §14.5 entry with this `id`, or a failed assertion naming it. */
+function entryById(id: string): WeeklyModifier {
+  const entry = WEEKLY_MODIFIERS.find((candidate) => candidate.id === id);
+  assert.ok(entry !== undefined, `§14.5 has no entry ${id}`);
+  return entry;
+}
+
+/** A beam reset into one cell of the table, exactly as `startRun` resets it. */
+function cellBeam(entry: WeeklyModifier, valueIndex: number): BeamModel {
+  const beam = new BeamModel();
+  beam.reset(0, false, applyWeeklyModifier(BASE_TUNING, entry, valueIndex));
+  return beam;
+}
+
+/** Is a point at this bearing from the lamp, at mid-reach, lit right now? */
+function litAt(beam: BeamModel, angleRad: number): boolean {
+  const radius = beam.range / 2;
+  return beam.containsPoint(
+    LAMP_X + radius * Math.cos(angleRad),
+    LAMP_Y + radius * Math.sin(angleRad),
+  );
+}
+
+/**
+ * Power left after a second of held focus and half a second of recovery — one
+ * probe that moves under a drain modifier and under a recharge one alike.
+ */
+function powerAfterFocusCycle(beam: BeamModel): number {
+  step(beam, 1, true);
+  step(beam, 0.5, false);
+  return beam.power;
+}
+
+describe('a weekly modifier reaches the beam (§14.5)', () => {
+  it('Free Play is the shipped beam (§14.8)', () => {
+    const beam = freshBeam();
+
+    assert.equal(beam.halfAngleRad, beamWideHalfAngleRad(BASE_TUNING));
+    assert.equal(beam.range, BEAM_WIDE_RANGE);
+  });
+
+  it('the plain cell reproduces it exactly (W3)', () => {
+    const plain = cellBeam(entryById('plain'), 0);
+    const shipped = freshBeam();
+
+    assert.equal(plain.halfAngleRad, shipped.halfAngleRad);
+    assert.equal(plain.range, shipped.range);
+    assert.equal(powerAfterFocusCycle(plain), powerAfterFocusCycle(shipped));
+  });
+
+  for (const { entry, valueIndex } of weeklyCells()) {
+    const label = weeklyCellLabel(entry, valueIndex);
+    const effect = BEAM_EFFECT[entry.constant];
+
+    it(`draws and freezes one cone under ${label}`, () => {
+      const config = applyWeeklyModifier(BASE_TUNING, entry, valueIndex);
+      const beam = cellBeam(entry, valueIndex);
+
+      // The angle `Beam.rebuildCone` draws the cone at — it slices from
+      // -halfAngleRad to +halfAngleRad — derived from *this cell's* config.
+      assert.equal(beam.halfAngleRad, beamWideHalfAngleRad(config), 'the drawn wide cone');
+
+      // And the angle §3.2's freeze test uses, probed either side of the drawn
+      // edge. Identical by construction now, and that is the point: with the
+      // half-angle derived at module load these disagreed under narrow-lantern.
+      assert.equal(litAt(beam, beam.halfAngleRad * 0.999), true, 'inside the drawn cone: lit');
+      assert.equal(litAt(beam, beam.halfAngleRad * 1.001), false, 'outside it: not lit');
+
+      // The same, at the other end of the §3.1 interpolation. The half-angle is
+      // compared to within a float's width rather than bit-exactly: at `w = 1`
+      // the lerp is `wide + (focus - wide)`, which is the focused angle to 1 ULP
+      // and not required to be the same double. What *is* exact — and what
+      // pillar 2 rests on — is that one number is both drawn and frozen with,
+      // which is what the two probes either side of it assert.
+      step(beam, BEAM_TRANSITION_TIME, true);
+      assert.ok(
+        Math.abs(beam.halfAngleRad - beamFocusHalfAngleRad(config)) < 1e-12,
+        'and the focused cone',
+      );
+      assert.equal(litAt(beam, beam.halfAngleRad * 0.999), true, 'inside the focused cone: lit');
+      assert.equal(litAt(beam, beam.halfAngleRad * 1.001), false, 'outside it: not lit');
+    });
+
+    it(`moves what §14.5 says it moves, and nothing else: ${label}`, () => {
+      const beam = cellBeam(entry, valueIndex);
+      const shipped = freshBeam();
+
+      if (effect === 'cone') {
+        assert.notEqual(beam.halfAngleRad, shipped.halfAngleRad, 'the cone moved');
+
+        // Which way, and whether the freeze moved with it: a point just inside
+        // the shipped wide cone is lit under a broader lantern and dark under a
+        // narrower one.
+        const justInsideShipped = shipped.halfAngleRad * 0.999;
+        const broader = beam.halfAngleRad > shipped.halfAngleRad;
+
+        assert.equal(litAt(shipped, justInsideShipped), true, 'lit at the shipped angle');
+        assert.equal(litAt(beam, justInsideShipped), broader, 'and only still lit if broader');
+        assert.equal(
+          broader,
+          entry.kind === 'multiplier' && (entry.values[valueIndex] ?? 1) > 1,
+          'in the direction the cell states',
+        );
+      } else {
+        assert.equal(beam.halfAngleRad, shipped.halfAngleRad, 'the cone is the shipped cone');
+      }
+
+      const cellPower = powerAfterFocusCycle(beam);
+      const shippedPower = powerAfterFocusCycle(shipped);
+
+      if (effect === 'power') {
+        assert.notEqual(cellPower, shippedPower, 'the power economy moved');
+      } else {
+        assert.equal(cellPower, shippedPower, 'the power economy is the shipped one');
+      }
+    });
+  }
+
+  it('a restart keeps the run it was already playing (§14.8)', () => {
+    const beam = cellBeam(entryById('narrow-lantern'), 0);
+    const cone = beam.halfAngleRad;
+
+    // `R` from game-over: no mode prompt, and no second resolution of the week.
+    beam.reset(0, false);
+
+    assert.equal(beam.halfAngleRad, cone);
+  });
+
+  it('resolving a cell does not retune the shipped config', () => {
+    const before = { ...BASE_TUNING };
+    cellBeam(entryById('narrow-lantern'), 1);
+
+    assert.deepEqual({ ...BASE_TUNING }, before);
+    assert.equal(freshBeam().halfAngleRad, beamWideHalfAngleRad(BASE_TUNING));
   });
 });
