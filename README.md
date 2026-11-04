@@ -28,8 +28,9 @@ npm run preview     # serve the built dist/ locally
 
 The tests cover the parts of the game that are pure rules — the beam state
 machine and power economy, crawler freeze/burn resolution, spawn placement and
-the ramps, and scoring. Those modules import no Phaser, so they can be stepped at
-a fixed delta instead of being played by hand.
+the ramps, scoring, the restart budget, and the sound cues as waveforms. Those
+modules import no Phaser, so they can be stepped at a fixed delta instead of
+being played by hand.
 
 ## Layout
 
@@ -66,10 +67,17 @@ The whole core loop: beam aiming and focus, the power meter, crawler spawning an
 movement, freeze/burn resolution, the run state machine, game over and scoring,
 with every tuning value read from `src/config` per `docs/design.md` §10.
 
+The game-feel pass on top of it: a glow on the beam that tightens and brightens
+as you focus, a ring and a flash on a crawler the moment the light catches it, an
+arc that fills as a burn accumulates, a burst when one is banished, a screen
+shake and a low thump when one reaches the lamp, and three short sound effects —
+the freeze, the burn and the lamp hit. Every sound confirms something already on
+screen, so the game loses no information with the tab muted.
+
 Still to come in the "Playable Vigil" milestone: the HUD readouts and the title
-and game-over overlays, and the game-feel pass (glow, shake, sound hooks). Until
-the HUD lands, power, score and best score are emitted on the scene event bus but
-are not drawn — the loop is playable, but it does not yet tell you your numbers.
+and game-over overlays. Until the HUD lands, power, score and best score are
+emitted on the scene event bus but are not drawn — the loop is playable, but it
+does not yet tell you your numbers.
 
 ## For agents
 
@@ -83,9 +91,14 @@ An asset with no entry in this table is a blocker, not a detail to fix later.
 
 | Asset | Kind | Provenance | Licence |
 | ----- | ---- | ---------- | ------- |
-| `lamp-glow` | Radial-gradient halo, generated in code at boot ([`src/beam/Lamp.ts`](./src/beam/Lamp.ts)) | Original, written for this game | Same as the repository |
-| Lamp core, beam cone | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
-| Crawlers, ambient wash | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+| `lamp-glow` | Radial-gradient halo, generated in code at boot ([`src/beam/glowTexture.ts`](./src/beam/glowTexture.ts)) | Original, written for this game | Same as the repository |
+| `beam-glow` | Radial-gradient bloom at the beam's mouth, generated in code at boot (same helper) | Original, written for this game | Same as the repository |
+| Lamp core, beam cone and halo | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+| Crawlers, frost rings, burn arcs, bursts, ambient wash | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+| Freeze, banish and lamp-hit sound effects | Waveforms synthesised from the `ToneSpec` values in [`src/config`](./src/config/index.ts) at boot ([`src/scenes/soundSynth.ts`](./src/scenes/soundSynth.ts)) | Original, written for this game | Same as the repository |
 
-No binary or third-party art, audio or font files are in the repository. All
-placeholder programmer art is generated from code once at boot.
+No binary or third-party art, audio or font files are in the repository, and
+nothing is fetched at runtime. All placeholder programmer art is generated from
+code once at boot, and so is every sound: the three cues are synthesised into
+audio buffers from named constants rather than loaded from files, so there is no
+third-party asset to license and nothing to go missing from a clean clone.
