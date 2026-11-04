@@ -8,10 +8,24 @@
 // information a player needs in order to act. Nothing may be added to this file
 // that is the only evidence of anything — that is the rule, not a preference.
 //
-// The waveforms are synthesised at boot from the ToneSpecs in `src/config`
+// The waveforms are synthesised from the ToneSpecs in `src/config`
 // (soundSynth.ts) and held as AudioBuffers. There is no audio file in the
 // repository, nothing is fetched, and nothing is decoded per play.
-import Phaser from 'phaser';
+//
+// **When the context is created, and why it is ours.** Phaser's sound manager
+// is switched off at the mount (`audio.noAudio`), and this class owns an
+// AudioContext of its own that does not exist until the first user gesture
+// inside the game's container. A context created at boot is a context the
+// browser suspends and warns about, and on an embedded page it is an audio
+// device opened by a widget the visitor has not touched yet. The gate in
+// `src/host/gestureGate.ts` runs this synchronously inside that first gesture,
+// which is also the only moment `resume()` is allowed to work.
+//
+// The buffers are baked in the same breath, not on first play, for the reason
+// the textures are baked at boot: synthesising a few thousand samples is cheap,
+// but it is not something to do on the frame a crawler dies. The gesture that
+// opens the gate is the key or click that starts the run, so the bake lands
+// before there is anything to confirm.
 
 import {
   AUDIO_MASTER_VOLUME,
@@ -24,6 +38,7 @@ import {
   SOUND_LAMP_HIT_VOLUME,
   type ToneSpec,
 } from '../config/index';
+import type { HostContext } from '../host/hostContext';
 import { renderTone } from './soundSynth';
 
 /** Mono, and the only channel index anything here uses. */
@@ -55,39 +70,43 @@ function bake(context: AudioContext, spec: ToneSpec): AudioBuffer {
 /**
  * The game's sound.
  *
- * Every method is a no-op when there is no Web Audio context — a browser with
- * audio disabled, or Phaser falling back to its no-audio manager. That is a
- * supported way to play this game, not a degraded one, because of the pillar 2
- * rule above.
+ * Every method is a no-op until the gate opens, and a no-op forever in a
+ * runtime with no Web Audio or in a game that was constructed without a host.
+ * Silence is a supported way to play this game, not a degraded one, because of
+ * the pillar 2 rule above.
  */
 export class VigilAudio {
-  private readonly context: AudioContext | null;
-  private readonly output: GainNode | null;
+  private context: AudioContext | null = null;
+  private output: GainNode | null = null;
+
   private readonly buffers: Map<CueName, AudioBuffer> = new Map();
 
   /** Seconds before another freeze cue is allowed. See SOUND_FREEZE_MIN_INTERVAL. */
   private freezeCooldown = 0;
 
-  public constructor(scene: Phaser.Scene) {
-    const manager = scene.sound;
-    this.context =
-      manager instanceof Phaser.Sound.WebAudioSoundManager ? manager.context : null;
+  private closed = false;
 
-    if (this.context === null) {
-      this.output = null;
+  /**
+   * @param host The mount, or null when the scene is running outside one. With
+   * no host there is no gesture to wait for and no teardown to register, so the
+   * game runs silent rather than guessing.
+   */
+  public constructor(host: HostContext | null) {
+    if (host === null) {
       return;
     }
 
-    this.output = this.context.createGain();
-    this.output.gain.value = AUDIO_MASTER_VOLUME;
-    this.output.connect(this.context.destination);
+    host.gesture.whenOpen(() => {
+      this.start();
+    });
 
-    // Bake every cue once, here, for the same reason the textures are baked once
-    // at boot: synthesising a few thousand samples is cheap, but it is not
-    // something to do on the frame a crawler dies.
-    for (const name of Object.keys(CUES) as CueName[]) {
-      this.buffers.set(name, bake(this.context, CUES[name].spec));
-    }
+    // Registered with the mount rather than with the scene's SHUTDOWN, because
+    // Phaser's scene teardown is deferred to the next frame and never arrives
+    // at all if the game was destroyed while the tab was hidden. An audio
+    // device has to come back whether or not a frame ever runs again.
+    host.addDisposable(() => {
+      this.dispose();
+    });
   }
 
   /**
@@ -130,6 +149,62 @@ export class VigilAudio {
     this.play('lampHit');
   }
 
+  /**
+   * Releases the audio device. Called by the mount's `destroy()`, synchronously.
+   *
+   * Closing the context takes every live buffer source and gain node with it,
+   * which is what keeps mount-destroy-mount from accumulating audio nodes.
+   */
+  public dispose(): void {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+
+    const context = this.context;
+    this.output?.disconnect();
+
+    this.context = null;
+    this.output = null;
+    this.buffers.clear();
+
+    // Nothing waits on this, and a context the browser has already torn down
+    // rejects: either way there is nothing left to do about it.
+    void context?.close().catch(() => undefined);
+  }
+
+  /** Runs inside the first user gesture. See the file header. */
+  private start(): void {
+    if (this.closed || this.context !== null) {
+      return;
+    }
+
+    // Guarded rather than assumed: a runtime with no Web Audio is a supported
+    // way to play, and the type says this is always there when the DOM lib does
+    // not know the difference.
+    if (typeof globalThis.AudioContext === 'undefined') {
+      return;
+    }
+
+    const context = new globalThis.AudioContext();
+    this.context = context;
+
+    this.output = context.createGain();
+    this.output.gain.value = AUDIO_MASTER_VOLUME;
+    this.output.connect(context.destination);
+
+    for (const name of Object.keys(CUES) as CueName[]) {
+      this.buffers.set(name, bake(context, CUES[name].spec));
+    }
+
+    // Still inside the gesture, which is the only place this is allowed to
+    // succeed. Ignored on rejection: silence is not a reason to stop the game.
+    if (context.state === 'suspended') {
+      void context.resume().catch(() => undefined);
+    }
+  }
+
   private play(name: CueName): void {
     const context = this.context;
     const output = this.output;
@@ -139,11 +214,9 @@ export class VigilAudio {
       return;
     }
 
-    // Phaser unlocks its context on the first input, and the first input in this
-    // game is the one that starts a run — so by the time there is anything to
-    // confirm, the context is running. This is belt and braces for a browser
-    // that suspends it again, and the rejection is ignored on purpose: a cue
-    // that cannot play is not a reason to interrupt a run.
+    // Belt and braces for a browser that suspends the context again mid-run.
+    // The rejection is ignored on purpose: a cue that cannot play is not a
+    // reason to interrupt a run.
     if (context.state === 'suspended') {
       void context.resume().catch(() => undefined);
     }

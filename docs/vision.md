@@ -380,10 +380,34 @@ Recorded so they are not reopened. All three are settled in `docs/concept.md`:
 5. **The passivity risk.** Concept §9 names the pre-agreed pivot if the loop feels
    flat after tuning: beam-rotation inertia, so aiming has weight. The playtest
    gate at the end of task 3 decides whether we take it.
-6. **[PROPOSAL] Auto-pause on window blur.** A browser game loses focus
-   constantly. Proposed for the milestone after Playable Vigil; it touches nothing
-   in the MVP scope above. Sequencing is `producer`'s call.
-   **Not taken into "Online Vigil" (2026-11-04).** The milestone after Playable
-   Vigil now has a name and a closed in-list ([§5b.1](#5b1-in)), and auto-pause is
-   not on it. It stays an open proposal for a later milestone; sequencing remains
-   `producer`'s call.
+6. **Auto-pause on window blur. CLOSED — shipped in GAM-41 (OV-5).** A browser
+   game loses focus constantly. Proposed for the milestone after Playable Vigil
+   as a standalone item, with sequencing left to `producer`.
+
+   **Not taken as a named line item (2026-11-04).** When the milestone after
+   Playable Vigil got its name and its closed in-list
+   ([§5b.1](#5b1-in)), auto-pause was not one of the ten entries on it. That
+   annotation was correct and is kept here: nobody scheduled auto-pause on its
+   own.
+
+   **It shipped anyway, under 5b.1 item 9 (2026-11-04).** The
+   website-readiness contract carries "host-friendly behaviour", and a game that
+   can be mounted into someone else's page has to pause when nobody is looking
+   at it, keep its keyboard inside its own container, and not open an audio
+   device before the visitor has touched it. Those are not three favours to the
+   host; they are one requirement with three faces, and the first of them *is*
+   this proposal. GAM-41 (OV-5) built it rather than leave a mounted game
+   running in a background tab. The proposal is therefore closed by delivery,
+   not by scheduling.
+
+   **What shipped.** The run suspends on `blur` and on the tab being hidden,
+   and stops dead: no time, no spawns, no power, no score — a pause can neither
+   earn a point nor cost one. It resumes on any key or click, never on focus
+   returning on its own: a run that restarted the instant the window came
+   forward would kill the player with a crawler they never saw move, which is
+   the pillar 2 failure the `docs/design.md` §2.4 delta clamp already exists to
+   prevent. The paused state is on screen in words, because pillar 2 forbids a
+   stopped run clock the screen does not admit to. A suspended run is **not a
+   fourth state**; it is still PLAYING, and the state machine is unchanged.
+   Ruled in `docs/design.md` §2.5, with the rest of the host-friendly work in
+   §2.6.

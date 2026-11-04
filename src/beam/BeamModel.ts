@@ -163,6 +163,19 @@ export class BeamModel {
   }
 
   /**
+   * Re-arms the §2.2 edge trigger without resetting anything else.
+   *
+   * `reset` applies that rule on entry to PLAYING. This applies the same rule
+   * at the other moment the game starts reading the focus input again: coming
+   * off a §2.5 pause, where the click or key that resumed the run is very often
+   * a focus binding and must not count as a hold. Power, width and the lockout
+   * are left exactly where the pause froze them — a pause gives nothing back.
+   */
+  public disarmHeldFocus(focusHeldNow: boolean): void {
+    this.heldFocusIgnored = focusHeldNow;
+  }
+
+  /**
    * Advances the width parameter, the power economy and the state machine by one
    * frame of PLAYING.
    *

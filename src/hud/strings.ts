@@ -81,6 +81,20 @@ export const TITLE_PROMPT = 'PRESS ANY KEY OR CLICK TO BEGIN';
 export const TITLE_FOOTNOTE = 'Running out of power never ends the run. It only stops the burning.';
 
 // ---------------------------------------------------------------------------
+// Pause overlay
+// ---------------------------------------------------------------------------
+//
+// `docs/design.md` §2.5. The note is not reassurance, it is the readout:
+// pillar 2 forbids the game holding a stopped run clock that the screen never
+// mentions, so the screen says in plain words what the pause is doing to the
+// run. "No key starts it by accident" is not promised, because any key does —
+// which is also why the prompt is worded the same way the title screen's is.
+
+export const PAUSE_HEADING = 'PAUSED';
+export const PAUSE_NOTE = 'The window lost focus. No time is passing and no score is being earned.';
+export const PAUSE_PROMPT = 'PRESS ANY KEY OR CLICK TO RESUME';
+
+// ---------------------------------------------------------------------------
 // Game-over overlay
 // ---------------------------------------------------------------------------
 

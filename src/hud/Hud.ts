@@ -15,12 +15,14 @@ import {
   VIGIL_EVENTS,
   type BeamState,
   type BeamStatePayload,
+  type PausePayload,
   type PointPayload,
   type PowerPayload,
   type RunStatePayload,
   type ScorePayload,
 } from '../scenes/events';
 import { GameOverOverlay } from './GameOverOverlay';
+import { PauseOverlay } from './PauseOverlay';
 import { PlayHud } from './PlayHud';
 import { TitleOverlay } from './TitleOverlay';
 
@@ -29,6 +31,12 @@ export class Hud {
   private readonly play: PlayHud;
   private readonly title: TitleOverlay;
   private readonly gameOver: GameOverOverlay;
+
+  /**
+   * §2.5. Built last so that it wins the depth tie against the other two
+   * overlays: a pause covers whatever was on screen when it began.
+   */
+  private readonly pause: PauseOverlay;
 
   /**
    * What the beam is doing, so the power meter can say whether the drain is
@@ -53,8 +61,10 @@ export class Hud {
     this.play = new PlayHud(scene);
     this.title = new TitleOverlay(scene);
     this.gameOver = new GameOverOverlay(scene);
+    this.pause = new PauseOverlay(scene);
 
     scene.events.on(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
+    scene.events.on(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     scene.events.on(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     scene.events.on(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);
     scene.events.on(VIGIL_EVENTS.BEAM_STATE_CHANGED, this.onBeamState, this);
@@ -91,6 +101,11 @@ export class Hud {
     }
   }
 
+  /** §2.5 — the run is suspended, or is not any more. */
+  private onPause(payload: PausePayload): void {
+    this.pause.setVisible(payload.paused);
+  }
+
   private onPower(payload: PowerPayload): void {
     this.play.showPower(payload, this.beamState);
   }
@@ -116,6 +131,7 @@ export class Hud {
     const events = this.scene.events;
 
     events.off(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
+    events.off(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     events.off(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     events.off(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);
     events.off(VIGIL_EVENTS.BEAM_STATE_CHANGED, this.onBeamState, this);

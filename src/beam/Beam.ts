@@ -125,6 +125,11 @@ export class Beam {
     this.syncAim();
   }
 
+  /** §2.5 — coming off a pause. See BeamModel.disarmHeldFocus. */
+  public disarmFocus(focusHeldNow: boolean): void {
+    this.model.disarmHeldFocus(focusHeldNow);
+  }
+
   /**
    * One frame of PLAYING.
    *
