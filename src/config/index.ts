@@ -11,6 +11,26 @@
 // Those are rendering details seeded by the skeleton task or added here for the
 // same reason: they are numbers a designer or `ui-designer` might want to change,
 // so they live here rather than in the modules that read them.
+//
+// **Derived values are functions of a run's config, not module-level constants**
+// (§14.5, "Where the derived constants are concerned"). A weekly modifier is
+// resolved into a `TuningConfig` at the transition to PLAYING, so anything this
+// file computes from a constant the §14.5 table can override has to be computed
+// *after* that, from the run's record — see `beamWideHalfAngleRad` below.
+//
+// GAM-44 audited this file against the seven constants of §14.5
+// (`WeeklyNumericConstant` plus `SPAWN_EDGE_WEIGHTS`). Exactly one load-time
+// derivation read one of them — `BEAM_WIDE_HALF_ANGLE_RAD`, from
+// `BEAM_WIDE_ANGLE_DEG` — which is what §14.5 says. The other derivations here
+// read `RENDER_WIDTH`/`RENDER_HEIGHT`, a colour, `POWER_FOCUS_REARM`,
+// `DISPLAY_NAME_*`, or a degree value that is not in the table
+// (`BEAM_REST_ANGLE_DEG`, `BURN_ARC_START_DEG`, `SPAWN_MIN_SEPARATION_DEG`), and
+// every one of those constants is listed in §14.7 as deliberately not weekly.
+// `BEAM_FOCUS_HALF_ANGLE_RAD` moved with the wide one regardless: both ends of
+// the §3.1 width interpolation now come from one record, so a cone can never be
+// half shipped and half weekly.
+
+import type { TuningConfig } from './tuning';
 
 // ---------------------------------------------------------------------------
 // Units — not tunables
@@ -163,9 +183,34 @@ export const BEAM_FOCUS_ALPHA = 0.34;
 
 export const BEAM_COLOR = 0xffe6b8;
 
-/** Half-angles in radians, derived from the §10.3 degree values above. */
-export const BEAM_WIDE_HALF_ANGLE_RAD = degToRad(BEAM_WIDE_ANGLE_DEG) / 2;
-export const BEAM_FOCUS_HALF_ANGLE_RAD = degToRad(BEAM_FOCUS_ANGLE_DEG) / 2;
+/**
+ * Half-angles in radians, derived from the §10.3 degree values — from **a run's**
+ * resolved tuning, not from the shipped constants above.
+ *
+ * These are functions rather than constants because `BEAM_WIDE_ANGLE_DEG` is an
+ * entry of the §14.5 modifier table and §14.5 requires a modifier to be applied
+ * *before* a derivation that reads it, never after. Derived once at module load,
+ * a `narrow-lantern` week would draw its cone at the weekly angle and run §3.2's
+ * freeze test at the shipped one: light that holds nothing, and a freeze outside
+ * the drawn cone. §14.5 names that a pillar 2 failure, and taking the config as
+ * an argument is what makes it unrepresentable — the cone is drawn and tested
+ * from one record (`src/beam/BeamModel.ts`).
+ *
+ * `BEAM_FOCUS_ANGLE_DEG` is *not* in the table (§14.7: §3.2's two geometry facts
+ * are not weekly), but its half-angle is derived the same way so that both ends
+ * of the §3.1 width interpolation come from the same place.
+ *
+ * A `Pick` rather than the whole `TuningConfig`: these read one field each, and
+ * the narrow parameter says so. The import is type-only, so `./tuning`'s
+ * dependency on this file stays the only one at runtime.
+ */
+export function beamWideHalfAngleRad(config: Pick<TuningConfig, 'BEAM_WIDE_ANGLE_DEG'>): number {
+  return degToRad(config.BEAM_WIDE_ANGLE_DEG) / 2;
+}
+
+export function beamFocusHalfAngleRad(config: Pick<TuningConfig, 'BEAM_FOCUS_ANGLE_DEG'>): number {
+  return degToRad(config.BEAM_FOCUS_ANGLE_DEG) / 2;
+}
 
 /**
  * Where the beam points before the player has moved the mouse (up-screen).

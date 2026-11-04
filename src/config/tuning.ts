@@ -18,10 +18,13 @@
 // fact and a one-line key diff instead of a mapping table someone has to maintain.
 //
 // This is not a place to add a tunable. Every value here is already a row of §10
-// and still lives in `./index`; this record only collects the ones the curves and
-// the model read.
+// and still lives in `./index`; this record only collects the ones the curves, the
+// beam and the model read. GAM-44 added `BEAM_FOCUS_ANGLE_DEG` under that rule —
+// `src/beam` now derives both §3.2 half-angles from a run's config, so the source
+// value for each has to be in the record the run carries.
 
 import {
+  BEAM_FOCUS_ANGLE_DEG,
   BEAM_FOCUS_RANGE,
   BEAM_TRANSITION_TIME,
   BEAM_WIDE_ANGLE_DEG,
@@ -48,16 +51,20 @@ import {
 } from './index';
 
 /**
- * Every §10 value the §5.4 curves and the `docs/throughput-sim.md` §3 model read,
- * under the constants' own names.
+ * Every §10 value the §5.4 curves, the §3 beam and the `docs/throughput-sim.md`
+ * §3 model read, under the constants' own names.
  *
- * Derived constants are deliberately absent. `src/config` computes
- * `BEAM_WIDE_HALF_ANGLE_RAD` from `BEAM_WIDE_ANGLE_DEG` at module load, and §14.5
- * requires a modifier to be applied *before* such a derivation, never after it.
- * Keeping only the source value here means a derivation can never disagree with
- * the value it was derived from: there is one of each in this record.
+ * Derived constants are deliberately absent, and that is the whole of §14.5's
+ * derived-constant rule: a modifier must be applied *before* a derivation that
+ * reads it, never after. So `src/config` derives the §3.2 half-angles **from a
+ * record of this shape** (`beamWideHalfAngleRad`, `beamFocusHalfAngleRad` in
+ * `./index`) rather than from the shipped constants at module load. Keeping only
+ * source values here means a derivation can never disagree with the value it was
+ * derived from: there is one of each in this record, and the half-angle is a
+ * function of it.
  */
 export interface TuningConfig {
+  readonly BEAM_FOCUS_ANGLE_DEG: number;
   readonly BEAM_FOCUS_RANGE: number;
   readonly BEAM_TRANSITION_TIME: number;
   readonly BEAM_WIDE_ANGLE_DEG: number;
@@ -83,6 +90,7 @@ export interface TuningConfig {
 
 /** Every key of `TuningConfig`, in a fixed order, for diffing two configs. */
 export const TUNING_KEYS: readonly (keyof TuningConfig)[] = [
+  'BEAM_FOCUS_ANGLE_DEG',
   'BEAM_FOCUS_RANGE',
   'BEAM_TRANSITION_TIME',
   'BEAM_WIDE_ANGLE_DEG',
@@ -108,6 +116,7 @@ export const TUNING_KEYS: readonly (keyof TuningConfig)[] = [
 
 /** The shipped config, exactly as `./index` exports it. */
 export const BASE_TUNING: TuningConfig = {
+  BEAM_FOCUS_ANGLE_DEG,
   BEAM_FOCUS_RANGE,
   BEAM_TRANSITION_TIME,
   BEAM_WIDE_ANGLE_DEG,
@@ -141,6 +150,27 @@ export type SpawnCurveTuning = Pick<
 export type SpeedCurveTuning = Pick<
   TuningConfig,
   'CRAWLER_SPEED_BASE' | 'CRAWLER_SPEED_MAX' | 'CRAWLER_SPEED_RAMP_PER_SECOND'
+>;
+
+/**
+ * What `src/beam`'s `BeamModel` reads: the §3.1 transition, the §3.2 cone and the
+ * §4.1 power rates. Three of them — `BEAM_WIDE_ANGLE_DEG`, `POWER_DRAIN_RATE` and
+ * `POWER_RECHARGE_RATE` — are §14.5 entries, which is why the beam is handed a run's
+ * config rather than importing the constants.
+ *
+ * The rest of §4 is absent because §14.7 puts it there: `POWER_MAX`, `POWER_START`
+ * and `POWER_FOCUS_REARM` are what the power meter is drawn against and may never
+ * be weekly, so the beam reads those from `./index` directly, as does `src/hud`.
+ */
+export type BeamTuning = Pick<
+  TuningConfig,
+  | 'BEAM_FOCUS_ANGLE_DEG'
+  | 'BEAM_FOCUS_RANGE'
+  | 'BEAM_TRANSITION_TIME'
+  | 'BEAM_WIDE_ANGLE_DEG'
+  | 'BEAM_WIDE_RANGE'
+  | 'POWER_DRAIN_RATE'
+  | 'POWER_RECHARGE_RATE'
 >;
 
 /**

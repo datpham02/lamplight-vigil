@@ -8,25 +8,21 @@
 
 import {
   BEAM_FOCUS_ALPHA,
-  BEAM_FOCUS_HALF_ANGLE_RAD,
-  BEAM_FOCUS_RANGE,
   BEAM_GLOW_ALPHA_FOCUS,
   BEAM_GLOW_ALPHA_WIDE,
   BEAM_GLOW_SCALE_FOCUS,
   BEAM_GLOW_SCALE_WIDE,
   BEAM_REST_ANGLE_RAD,
-  BEAM_TRANSITION_TIME,
   BEAM_WIDE_ALPHA,
-  BEAM_WIDE_HALF_ANGLE_RAD,
-  BEAM_WIDE_RANGE,
   LAMP_X,
   LAMP_Y,
-  POWER_DRAIN_RATE,
   POWER_FOCUS_REARM,
   POWER_MAX,
-  POWER_RECHARGE_RATE,
   POWER_START,
+  beamFocusHalfAngleRad,
+  beamWideHalfAngleRad,
 } from '../config/index';
+import { BASE_TUNING, type BeamTuning } from '../config/tuning';
 import { BEAM_STATE, type BeamState } from '../scenes/events';
 
 /** Linear interpolation between the wide and focused values of a quantity. */
@@ -50,8 +46,36 @@ function angularDistance(a: number, b: number): number {
  * focused. Cone half-angle, reach and alpha all interpolate linearly on it, so
  * releasing focus mid-narrow reverses from wherever the beam is instead of
  * snapping (§3.1).
+ *
+ * Every number a §14.5 modifier can move — the cone angle, the ranges, the
+ * transition, the two power rates — comes from the run's config (§14.9's
+ * override surface) rather than from a module-level import, so a weekly modifier
+ * actually reaches the beam. `BASE_TUNING` is Free Play: the shipped values,
+ * exactly as committed (§14.8). The constants §14.7 fences off as never-weekly —
+ * `POWER_MAX`, `POWER_START`, `POWER_FOCUS_REARM` and the fill alphas — are
+ * still imported from `src/config`, because a run may not move them.
  */
 export class BeamModel {
+  /**
+   * The run's numbers. Replaced only by `reset`, which is the transition to
+   * PLAYING — §14.2 resolves a week once there and holds it for the whole run,
+   * and nothing below this line may read it a second time.
+   */
+  private config: BeamTuning = BASE_TUNING;
+
+  /**
+   * The §3.2 half-angles for `config`, re-derived only when it is replaced.
+   *
+   * Cached per *run* rather than at module load, which is the point of GAM-44:
+   * `BEAM_WIDE_ANGLE_DEG` is a §14.5 entry, so the modifier has to be applied
+   * before this derivation. They are cached at all because `containsPoint` reads
+   * `halfAngleRad` once per crawler per frame, and `rebuildCone` draws the cone
+   * from the same getter — one number, so the lit cone and the drawn cone cannot
+   * disagree.
+   */
+  private wideHalfAngleRadValue = beamWideHalfAngleRad(BASE_TUNING);
+  private focusHalfAngleRadValue = beamFocusHalfAngleRad(BASE_TUNING);
+
   private angleRadValue = BEAM_REST_ANGLE_RAD;
   private widthValue = 0;
   private powerValue = POWER_START;
@@ -72,6 +96,15 @@ export class BeamModel {
    * rule as `heldFocusIgnored` above: there the player never pressed at all.
    */
   private focusLockedOutValue = false;
+
+  /**
+   * @param config The numbers this beam plays at. Defaulted to the shipped
+   * values so a beam built outside a run — in `create()`, before the first
+   * `reset`, or in a test — behaves exactly as it did before OV-2.
+   */
+  public constructor(config: BeamTuning = BASE_TUNING) {
+    this.adoptConfig(config);
+  }
 
   /** Current aim, radians, in render space. */
   public get angleRad(): number {
@@ -96,14 +129,20 @@ export class BeamModel {
     return this.focusLockedOutValue;
   }
 
-  /** Half of the current cone angle, radians. */
+  /**
+   * Half of the current cone angle, radians.
+   *
+   * The one number both halves of §3.2 are decided by: `Beam.rebuildCone` draws
+   * the cone from `-halfAngleRad` to `+halfAngleRad`, and `containsPoint` below
+   * freezes inside exactly that. Read it; never re-derive it from a constant.
+   */
   public get halfAngleRad(): number {
-    return lerp(BEAM_WIDE_HALF_ANGLE_RAD, BEAM_FOCUS_HALF_ANGLE_RAD, this.widthValue);
+    return lerp(this.wideHalfAngleRadValue, this.focusHalfAngleRadValue, this.widthValue);
   }
 
   /** Current reach from the lamp centre, px. */
   public get range(): number {
-    return lerp(BEAM_WIDE_RANGE, BEAM_FOCUS_RANGE, this.widthValue);
+    return lerp(this.config.BEAM_WIDE_RANGE, this.config.BEAM_FOCUS_RANGE, this.widthValue);
   }
 
   /** Current fill alpha. Focused is brighter as well as narrower (§3.2). */
@@ -152,8 +191,15 @@ export class BeamModel {
    * restart is never a beam pointing somewhere the player is not looking.
    * @param focusHeldNow Whether a focus binding is down at this instant. If it
    * is, it is disarmed until released.
+   * @param config The numbers the *next* run is played at (§14.8). Omit it to
+   * keep the current ones, which is what `R` from game-over wants: it restarts
+   * the mode just played, and the restart path never grows a step.
    */
-  public reset(angleRad: number, focusHeldNow: boolean): void {
+  public reset(angleRad: number, focusHeldNow: boolean, config?: BeamTuning): void {
+    if (config !== undefined) {
+      this.adoptConfig(config);
+    }
+
     this.angleRadValue = angleRad;
     this.widthValue = 0;
     this.powerValue = POWER_START;
@@ -173,6 +219,16 @@ export class BeamModel {
    */
   public disarmHeldFocus(focusHeldNow: boolean): void {
     this.heldFocusIgnored = focusHeldNow;
+  }
+
+  /**
+   * Takes a run's numbers and derives the §3.2 half-angles from them, in that
+   * order. The only place either half-angle is computed.
+   */
+  private adoptConfig(config: BeamTuning): void {
+    this.config = config;
+    this.wideHalfAngleRadValue = beamWideHalfAngleRad(config);
+    this.focusHalfAngleRadValue = beamFocusHalfAngleRad(config);
   }
 
   /**
@@ -197,7 +253,7 @@ export class BeamModel {
     // WIDE. Both boundaries are the focus intent, not the width, so the drain
     // starts the instant the key goes down and a tap pays for its round trip.
     if (wantsFocus) {
-      this.powerValue = Math.max(0, this.powerValue - POWER_DRAIN_RATE * deltaSeconds);
+      this.powerValue = Math.max(0, this.powerValue - this.config.POWER_DRAIN_RATE * deltaSeconds);
       if (this.powerValue === 0) {
         // §4.2 — zero power ends the ability to burn, never the run. The beam is
         // forced out of NARROWING/FOCUSED into WIDENING whether or not the input
@@ -206,10 +262,13 @@ export class BeamModel {
         wantsFocus = false;
       }
     } else {
-      this.powerValue = Math.min(POWER_MAX, this.powerValue + POWER_RECHARGE_RATE * deltaSeconds);
+      this.powerValue = Math.min(
+        POWER_MAX,
+        this.powerValue + this.config.POWER_RECHARGE_RATE * deltaSeconds,
+      );
     }
 
-    const widthStep = deltaSeconds / BEAM_TRANSITION_TIME;
+    const widthStep = deltaSeconds / this.config.BEAM_TRANSITION_TIME;
     this.widthValue = wantsFocus
       ? Math.min(1, this.widthValue + widthStep)
       : Math.max(0, this.widthValue - widthStep);

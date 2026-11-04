@@ -23,7 +23,7 @@ import {
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
-import { msRemainingInWeek, weeklyRunAt } from '../weekly/index';
+import { freePlayRun, msRemainingInWeek, weeklyRunAt, type RunSetup } from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import {
   canRename,
@@ -483,9 +483,9 @@ export class VigilScene extends Phaser.Scene {
    * §14.2 and §14.8 — the week the title screen names: the one a run begun
    * from this screen would be played under.
    *
-   * Resolved through `weeklyRunAt()`, the same entry point `resolveRunWeek()`
-   * uses, so the week on the title screen and the week the run is configured
-   * from cannot be resolved two different ways. No network and nothing awaited:
+   * Resolved through `weeklyRunAt()`, the same entry point `nextRun()` uses, so
+   * the week on the title screen and the week the run is configured from cannot
+   * be resolved two different ways. No network and nothing awaited:
    * §14.2 is local arithmetic on the clock, which is what criterion 20 is about.
    */
   private emitWeek(nowMs = Date.now()): void {
@@ -508,32 +508,35 @@ export class VigilScene extends Phaser.Scene {
   }
 
   /**
-   * §14.2 — the week this run is played under, resolved **once**, here, at the
-   * transition to PLAYING, and held for the whole run.
+   * §14.2 — holds the week this run is played under for the whole run, from the
+   * run `startRun` already resolved.
+   *
+   * It takes the run rather than resolving one, because the week the screens
+   * name and the config the run is actually played at have to be the same
+   * resolution: the modifier named on the game-over screen is now the modifier
+   * the beam and the field were handed (`run.config`, GAM-44), and two separate
+   * `weeklyRunAt()` calls either side of a rollover could name one week and play
+   * another. That is the pillar 2 falsehood this signature exists to prevent.
    *
    * A clock change, a rollover or a laptop waking from sleep mid-run retunes
    * nothing and renames nothing: the next run picks up the new week (criterion
    * 26). Free Play resolves no week at all — §14.8 does not let it read the
    * clock for one — so the row it would fill stays empty on both screens.
    *
-   * `weeklyRunAt()` also returns the week's `config` and its seeded `random`,
-   * which this task deliberately does not thread into `src/enemies`: the
-   * screens are this task's and the beam and the spawner are a separate one's.
-   * `CrawlerField.reset(run)` is the seam they arrive through when it lands,
-   * and until then both modes play the shipped config.
+   * @param run The run `nextRun()` returned for this mode.
+   * @param nowMs The same clock reading `run` was resolved from, so the
+   *   countdown ends the week the run is actually being played under.
    */
-  private resolveRunWeek(): void {
-    if (this.mode === RUN_MODE.FREE_PLAY) {
+  private holdRunWeek(run: RunSetup, nowMs: number): void {
+    const week = run.week;
+
+    if (week === null) {
       this.runWeek = null;
       this.weekEndsAtMs = 0;
       return;
     }
 
-    const nowMs = Date.now();
-    const week = weeklyRunAt(nowMs).week;
-
-    this.runWeek =
-      week === null ? null : { key: week.key, entryId: week.entry.id, valueIndex: week.valueIndex };
+    this.runWeek = { key: week.key, entryId: week.entry.id, valueIndex: week.valueIndex };
     this.weekEndsAtMs = nowMs + msRemainingInWeek(nowMs);
   }
 
@@ -666,6 +669,27 @@ export class VigilScene extends Phaser.Scene {
   }
 
   /**
+   * §14.8 — what the next run is played under: the numbers to play at, the dice
+   * to roll with, and the week to name on screen.
+   *
+   * The two modes resolve through the one method, so there is exactly one place
+   * a run's tuning can come from. Free Play is the shipped `src/config` exactly
+   * as committed, unseeded and carrying no modifier; the weekly vigil is
+   * `weeklyRunAt()`, whose config is the §14.5 cell applied to that same base.
+   * The beam and the crawler field are *handed* whichever of the two came back
+   * rather than reading module-level constants, which is what lets the modifier
+   * reach gameplay without either of them knowing a mode exists.
+   *
+   * §14.2 requires the clock read to happen once, at the transition to PLAYING:
+   * `startRun` below is that moment and the only caller, and it passes the
+   * reading in rather than letting this method take its own — the week named on
+   * screen and the config the run is played at must come from one instant.
+   */
+  private nextRun(mode: RunMode, nowMs: number): RunSetup {
+    return mode === RUN_MODE.FREE_PLAY ? freePlayRun() : weeklyRunAt(nowMs);
+  }
+
+  /**
    * §2.2 — entry to PLAYING, from TITLE and from GAME_OVER alike.
    *
    * @param mode The mode to play in. From TITLE it is whichever key or click
@@ -674,14 +698,21 @@ export class VigilScene extends Phaser.Scene {
    */
   private startRun(mode: RunMode): void {
     this.mode = mode;
-    this.resolveRunWeek();
+
+    // Resolved once, here, from one clock reading, and then held for the whole
+    // run: by the field and the beam as tuning and dice, and by the scene as
+    // the week the two screens name (§14.2).
+    const nowMs = Date.now();
+    const run = this.nextRun(mode, nowMs);
+    this.holdRunWeek(run, nowMs);
+
     this.runState = RUN_STATE.PLAYING;
     this.elapsedSeconds = 0;
     this.banished = 0;
     this.score = 0;
     this.restartLockoutLeft = 0;
     this.restartBuffered = false;
-    this.field.reset();
+    this.field.reset(run);
 
     // §15 — belt and braces. Nothing can start a run with the editor open, so
     // this is never true; if it ever became true, the screen would be told on
@@ -704,8 +735,10 @@ export class VigilScene extends Phaser.Scene {
     this.feedback.reset();
 
     // Aim is seeded from the live pointer and a focus binding already held is
-    // disarmed, both before the first frame renders.
-    this.beam.reset(this.focusHeld);
+    // disarmed, both before the first frame renders. The run's config goes in
+    // with them, so the cone this run is drawn and frozen with is this run's —
+    // the same record the field got above, from the same resolution.
+    this.beam.reset(this.focusHeld, run.config);
 
     this.crawlerRenderer.draw(this.field.all);
     this.emitRunState();
