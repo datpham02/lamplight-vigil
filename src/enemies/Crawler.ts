@@ -9,6 +9,7 @@ import {
   BURN_DECAY_MULTIPLIER,
   BURN_DWELL_TIME,
   CRAWLER_RADIUS,
+  FREEZE_FLASH_TIME,
   LAMP_RADIUS,
   LAMP_X,
   LAMP_Y,
@@ -40,6 +41,16 @@ export class Crawler {
   private dwell = 0;
   private litValue = false;
 
+  /**
+   * Feedback state (GAM-12). Neither of these changes a rule: a crawler freezes,
+   * burns and dies exactly when §5.2 says it does whether or not anything is
+   * drawn from them. They exist so the catch has a moment and a sound, instead
+   * of only a colour that was already there.
+   */
+  private wasLit = false;
+  private frozeThisFrame = false;
+  private freezeFlashLeft = 0;
+
   public constructor(x: number, y: number, speedFactor: number) {
     this.x = x;
     this.y = y;
@@ -55,6 +66,24 @@ export class Crawler {
   /** True while the beam is on it. Frozen and lit are the same thing (§5.2). */
   public get isFrozen(): boolean {
     return this.litValue;
+  }
+
+  /**
+   * True only on the frame the light first reached this crawler. The hook the
+   * freeze confirmation hangs off: it fires on the transition, not on the state,
+   * so holding a beam on a crawler for ten seconds is one catch, not ten.
+   */
+  public get justFroze(): boolean {
+    return this.frozeThisFrame;
+  }
+
+  /**
+   * The catch flash, 1 on the frame of the catch and falling to 0 over
+   * FREEZE_FLASH_TIME. Cosmetic: it outlives nothing and gates nothing, and a
+   * crawler released before it expires keeps playing it out as it walks.
+   */
+  public get freezeFlash(): number {
+    return this.freezeFlashLeft / FREEZE_FLASH_TIME;
   }
 
   /** Burn progress in [0, 1]. Pillar 2 requires this to be visible (§5.2). */
@@ -95,6 +124,15 @@ export class Crawler {
     // 1. Frozen while lit, at any width. No grace period, no easing, no residual
     //    slow: it resumes the frame the light leaves it.
     this.litValue = lit;
+
+    // Feedback only, and strictly derived from rule 1. The flash is aged before
+    // the catch is tested so that re-entering the light restarts it cleanly.
+    this.freezeFlashLeft = Math.max(0, this.freezeFlashLeft - deltaSeconds);
+    this.frozeThisFrame = lit && !this.wasLit;
+    if (this.frozeThisFrame) {
+      this.freezeFlashLeft = FREEZE_FLASH_TIME;
+    }
+    this.wasLit = lit;
 
     // 2. Burn dwell accrues only inside a FOCUSED cone, and decays otherwise.
     //    Decay rather than instant reset: a wobble costs more than it gained,
