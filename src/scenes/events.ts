@@ -56,6 +56,15 @@ export const VIGIL_EVENTS = {
   POWER_CHANGED: 'power:changed',
   /** The run state machine moved. Payload: RunStatePayload. */
   RUN_STATE_CHANGED: 'run:state-changed',
+  /**
+   * A run was suspended, or taken off suspension (§2.5). Payload: PausePayload.
+   *
+   * Separate from RUN_STATE_CHANGED because a suspended run is still PLAYING:
+   * nothing about the state machine moved, the frame it is on simply stopped
+   * advancing. The HUD needs it because pillar 2 forbids a stopped run clock
+   * the screen does not admit to.
+   */
+  PAUSE_CHANGED: 'run:pause-changed',
   /** Score and its inputs, every frame of PLAYING. Payload: ScorePayload. */
   SCORE_CHANGED: 'score:changed',
   /**
@@ -106,6 +115,12 @@ export interface RunStatePayload {
   readonly banished: number;
   readonly elapsedSeconds: number;
   readonly bestScore: number;
+}
+
+/** Payload for VIGIL_EVENTS.PAUSE_CHANGED. */
+export interface PausePayload {
+  /** True while the run is suspended: no time, no power, no score (§2.5). */
+  readonly paused: boolean;
 }
 
 /** Payload for VIGIL_EVENTS.SCORE_CHANGED. */

@@ -189,6 +189,56 @@ describe('focus is edge-triggered on entry to PLAYING (design.md §2.2)', () => 
   });
 });
 
+describe('the same edge trigger, on resuming from a pause (design.md §2.5)', () => {
+  it('ignores the click that resumed the run until it is released', () => {
+    const beam = freshBeam();
+    // Half a second of real burning, so there is state a reset would wipe.
+    step(beam, 0.5, true);
+    const powerAtPause = beam.power;
+
+    // The player let go, the window blurred, and they came back by clicking —
+    // which is also a focus binding (§7).
+    beam.disarmHeldFocus(true);
+    step(beam, 0.5, true);
+
+    assert.equal(beam.state, BEAM_STATE.WIDE, 'the resume click is not a hold');
+    assert.ok(beam.power > powerAtPause, 'so the beam recharges instead of draining');
+  });
+
+  it('gives nothing back: power and the lockout survive the pause', () => {
+    const beam = freshBeam();
+    drainToZero(beam);
+
+    assert.equal(beam.power, 0);
+    assert.equal(beam.focusLockedOut, true);
+
+    beam.disarmHeldFocus(true);
+
+    assert.equal(beam.power, 0, 'a pause is not a refill');
+    assert.equal(beam.focusLockedOut, true, 'and not a way out of the §4.2 blackout');
+  });
+
+  it('arms again on the next real press', () => {
+    const beam = freshBeam();
+
+    beam.disarmHeldFocus(true);
+    beam.update(FRAME, true);
+    beam.update(FRAME, false);
+    beam.update(FRAME, true);
+
+    assert.equal(beam.state, BEAM_STATE.NARROWING);
+  });
+
+  it('a resume by keyboard, with no binding held, arms immediately', () => {
+    const beam = freshBeam();
+
+    beam.disarmHeldFocus(false);
+    beam.update(FRAME, true);
+
+    assert.equal(beam.state, BEAM_STATE.NARROWING);
+  });
+});
+
 describe('beam geometry (design.md §3.2)', () => {
   const halfDiagonal = Math.hypot(RENDER_WIDTH / 2, RENDER_HEIGHT / 2);
 

@@ -616,6 +616,27 @@ export const TITLE_PROMPT_SIZE = 24;
 export const TITLE_FOOTNOTE_Y = 466;
 export const TITLE_FOOTNOTE_SIZE = 14;
 
+// --- Pause overlay ----------------------------------------------------------
+//
+// `docs/design.md` §2.5. The screen the player comes back to after the window
+// lost focus, and the reason pausing is not hidden state: the run clock has
+// stopped, so the screen says so and says how to start it again.
+//
+// Heavier scrim than game-over on purpose. There is nothing behind this one the
+// player needs to read — the hollow is exactly as they left it and will still
+// be there when they resume — and a pause that can be mistaken for a live run
+// is how a player comes back, sees no crawler move, and thinks the game broke.
+
+export const PAUSE_SCRIM_ALPHA = 0.76;
+
+export const PAUSE_HEADING_Y = 212;
+export const PAUSE_HEADING_SIZE = 44;
+export const PAUSE_HEADING_TRACKING = 5;
+export const PAUSE_NOTE_Y = 276;
+export const PAUSE_NOTE_SIZE = 17;
+export const PAUSE_PROMPT_Y = 320;
+export const PAUSE_PROMPT_SIZE = 22;
+
 // --- Game-over overlay ------------------------------------------------------
 
 /**

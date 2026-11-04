@@ -20,6 +20,7 @@ import {
   RENDER_WIDTH,
 } from '../config/index';
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
+import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import { RestartClock } from './restartClock';
@@ -28,6 +29,7 @@ import { VigilFeedback } from './VigilFeedback';
 import {
   RUN_STATE,
   VIGIL_EVENTS,
+  type PausePayload,
   type PointPayload,
   type PowerPayload,
   type RunState,
@@ -65,6 +67,16 @@ export class VigilScene extends Phaser.Scene {
   private focusKey: Phaser.Input.Keyboard.Key | null = null;
   private restartKey: Phaser.Input.Keyboard.Key | null = null;
 
+  /**
+   * The page this game is mounted on, or null when there is none — a scene
+   * built outside `mount()` is still a working scene, it simply never pauses
+   * and never makes a sound.
+   *
+   * Read once in create() rather than per frame: it belongs to the game, not to
+   * the run, so it must not be cleared in init().
+   */
+  private host: HostContext | null = null;
+
   // Per-run state. Reset in init() and in startRun(), never in the constructor —
   // Phaser reuses scene instances across restarts (AGENTS.md).
   private runState: RunState = RUN_STATE.TITLE;
@@ -76,6 +88,29 @@ export class VigilScene extends Phaser.Scene {
   /** §2.3 — seconds of restart lockout left, and whether a press is waiting. */
   private restartLockoutLeft = 0;
   private restartBuffered = false;
+
+  /**
+   * §2.5 — whether the run is suspended because nobody is looking at it.
+   *
+   * This is not a fourth run state: the run is still PLAYING, it has simply
+   * stopped advancing. It is held here rather than read from the host every
+   * time it is needed so that there is exactly one frame boundary at which a
+   * pause begins or ends, and so the HUD is told on that frame and no other.
+   */
+  private paused = false;
+
+  /**
+   * §2.6 — whether the press currently holding a pointer button landed on the
+   * game rather than somewhere else on the host page.
+   *
+   * Phaser's window-level `mousedown` listener (which exists so a release off
+   * the canvas is still seen) reports every press on the page, and a press on
+   * the host's own form field must not focus the beam. There is no matching
+   * flag for the release: the button going up anywhere clears
+   * `leftButtonDown()` on its own, so a stale `true` here cannot outlive the
+   * press it belongs to.
+   */
+  private pointerPressOnGame = false;
 
   /**
    * Clock for the lamp's cosmetic pulse. Separate from elapsedSeconds because the
@@ -107,11 +142,15 @@ export class VigilScene extends Phaser.Scene {
     this.cosmeticMs = 0;
     this.restartLockoutLeft = 0;
     this.restartBuffered = false;
+    this.paused = false;
+    this.pointerPressOnGame = false;
     this.field.reset();
     this.bestScore = readBestScore();
   }
 
   create(): void {
+    this.host = readHostContext(this);
+
     // The minimum ambient floor from docs/design.md §10.2: a hollow that is
     // literally black hides crawlers the player is entitled to see.
     this.add
@@ -125,11 +164,12 @@ export class VigilScene extends Phaser.Scene {
     this.crawlerRenderer = new CrawlerRenderer(this);
 
     // Subscribes to the events emitted below; the scene never calls into it to
-    // make something happen. Its sound buffers are synthesised here too, once,
-    // for the same reason the textures are.
-    this.feedback = new VigilFeedback(this);
+    // make something happen. It is handed the host because its sound cannot be
+    // built here: §2.6 forbids an audio device before the player's first
+    // gesture, and the host is what knows when that happens.
+    this.feedback = new VigilFeedback(this, this.host);
 
-    // The readouts and the two overlays. The HUD subscribes itself to the
+    // The readouts and the three overlays. The HUD subscribes itself to the
     // events below and is not referred to again from here: the scene owns the
     // run, not what the run looks like. It is constructed before the first
     // emitRunState() so the title screen is up on the first rendered frame,
@@ -142,7 +182,7 @@ export class VigilScene extends Phaser.Scene {
       this.restartKey = keyboard.addKey(INPUT_RESTART_KEY);
       keyboard.on(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.onAnyInput, this);
     }
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onAnyInput, this);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
 
     this.emitRunState();
   }
@@ -159,6 +199,14 @@ export class VigilScene extends Phaser.Scene {
     // where the measurement stops. Before the state machine runs, so a death on
     // this very frame cannot be mistaken for the end of the previous restart.
     this.reportRestartIfMeasured(time);
+
+    // §2.5 — a suspended run advances nothing at all: not the clock, not the
+    // crawlers, not the power, not the lamp's pulse, not even a fading burst.
+    // The frame on screen is the frame the player walked away from, and a
+    // pause therefore cannot earn a point or cost one.
+    if (this.syncPause()) {
+      return;
+    }
 
     switch (this.runState) {
       case RUN_STATE.TITLE:
@@ -186,11 +234,66 @@ export class VigilScene extends Phaser.Scene {
     this.feedback.update(deltaSeconds);
   }
 
+  /**
+   * §2.5 — reconciles the run with the host's pause signal, once per frame.
+   *
+   * Only PLAYING can be suspended. TITLE and GAME_OVER already advance no
+   * clock and earn no score, and a title screen that demanded a click before it
+   * would breathe again would be a worse first impression than the one it
+   * fixes.
+   *
+   * @returns whether the run is suspended on this frame.
+   */
+  private syncPause(): boolean {
+    const wanted =
+      this.runState === RUN_STATE.PLAYING && (this.host?.pause.pauseRequested ?? false);
+
+    if (wanted !== this.paused) {
+      this.paused = wanted;
+      this.emitPause();
+    }
+
+    return this.paused;
+  }
+
+  /**
+   * §2.5 — the player came back and gave the game an input.
+   *
+   * Resuming is deliberately an action rather than a window event: see
+   * `src/host/pauseSignal.ts` on why returning focus must not be enough. The
+   * input that resumes runs through the §2.2 edge trigger for the same reason
+   * the click that starts a run does — it is very often the left mouse button,
+   * which is also a focus binding.
+   */
+  private resumeFromPause(): void {
+    this.host?.pause.clear();
+    this.paused = false;
+    this.beam.disarmFocus(this.focusHeld);
+    this.emitPause();
+  }
+
   /** Whether either focus binding is down right now (§7). */
   private get focusHeld(): boolean {
     const keyHeld = this.focusKey?.isDown ?? false;
-    const pointerHeld = INPUT_FOCUS_POINTER && this.input.activePointer.leftButtonDown();
+    const pointerHeld =
+      INPUT_FOCUS_POINTER && this.pointerPressOnGame && this.input.activePointer.leftButtonDown();
     return keyHeld || pointerHeld;
+  }
+
+  /**
+   * §2.6 — a pointer press. Discarded unless it landed on the game.
+   *
+   * The flag is set either way, including to false, because it is what decides
+   * whether the button now being held counts as the §7 focus binding. A press
+   * on the page beside the game must not narrow the beam.
+   */
+  private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    // Not mounted, so there is no "outside" to be on the wrong side of.
+    this.pointerPressOnGame = this.host?.ownsEventTarget(pointer.event.target) ?? true;
+
+    if (this.pointerPressOnGame) {
+      this.onAnyInput();
+    }
   }
 
   /** One frame of PLAYING. */
@@ -239,11 +342,19 @@ export class VigilScene extends Phaser.Scene {
   }
 
   /**
-   * TITLE only: any key or any click starts the run (§7). In PLAYING and
-   * GAME_OVER this does nothing — restart is INPUT_RESTART_KEY and goes through
+   * Any key or any click: starts the run from TITLE, and lifts a §2.5 pause.
+   * Otherwise it does nothing — restart is INPUT_RESTART_KEY and goes through
    * the lockout in stepGameOver.
+   *
+   * The pause case comes first because a suspended run is still PLAYING, and
+   * the one thing the player can do to it is carry on.
    */
   private onAnyInput(): void {
+    if (this.paused) {
+      this.resumeFromPause();
+      return;
+    }
+
     if (this.runState === RUN_STATE.TITLE) {
       this.startRun();
     }
@@ -259,6 +370,12 @@ export class VigilScene extends Phaser.Scene {
     this.restartBuffered = false;
     this.field.reset();
 
+    // §2.5 — a run never opens suspended. The key or click that got here is
+    // itself the player being present, so a blur that happened while the
+    // game-over screen was up has already been answered.
+    this.host?.pause.clear();
+    this.paused = false;
+
     // Bursts are killed and any running camera shake is cancelled, so the first
     // frame of the new run is not still shaking from the last one's death. No
     // asset is loaded and no scene is restarted here — that is what keeps this
@@ -271,6 +388,7 @@ export class VigilScene extends Phaser.Scene {
 
     this.crawlerRenderer.draw(this.field.all);
     this.emitRunState();
+    this.emitPause();
     this.emitPower();
     this.emitScore();
 
@@ -327,6 +445,11 @@ export class VigilScene extends Phaser.Scene {
       bestScore: this.bestScore,
     };
     this.events.emit(VIGIL_EVENTS.RUN_STATE_CHANGED, payload);
+  }
+
+  private emitPause(): void {
+    const payload: PausePayload = { paused: this.paused };
+    this.events.emit(VIGIL_EVENTS.PAUSE_CHANGED, payload);
   }
 
   private emitPower(): void {
