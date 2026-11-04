@@ -101,8 +101,22 @@ export const LAMP_PULSE_ALPHA_SWING = 0.12;
  * §10.2 — the minimum ambient floor, against the readability risk in
  * `docs/concept.md` §9. A hollow that is literally black hides crawlers the
  * player is entitled to see, so a faint wash of lamplight covers the whole
- * arena. Tinted with `BEAM_COLOR` rather than a colour of its own; `ui-designer`
- * finalises the treatment in the HUD-and-screens task.
+ * arena. Tinted with `BEAM_COLOR` rather than a colour of its own.
+ *
+ * FINALISED by `ui-designer` in the HUD-and-screens task, and kept at the
+ * seeded value. The wash lifts the unlit hollow from `#06070b` to about
+ * `#1a1919`, which leaves an unlit crawler (`CRAWLER_COLOR`, `#8a93a8`) at a
+ * contrast ratio of roughly 5.4:1 against it — above the 4.5:1 line, so a
+ * crawler outside the cone is still a readable silhouette rather than a shape
+ * the player only finds by sweeping the beam over it. Raising the floor makes
+ * the hollow lighter and that ratio *worse*, which is why this is a floor and
+ * not a brightness dial: 0.14, the top of the safe range, drops it to about
+ * 3.6:1 and starts hiding the crawlers it was meant to reveal.
+ *
+ * The rest of the §9 mitigation is in `src/hud`: readouts sit in the four
+ * corners, which is the only screen real estate crawlers walk away from rather
+ * than into, and every HUD string carries an ink shadow so it survives the
+ * beam sweeping under it.
  */
 export const AMBIENT_LIGHT_ALPHA = 0.08;
 
@@ -335,3 +349,238 @@ export const INPUT_FOCUS_POINTER = true;
 
 /** §7 — restarts from GAME_OVER. Phaser key name. */
 export const INPUT_RESTART_KEY = 'R';
+
+// ---------------------------------------------------------------------------
+// HUD — palette, typography and layout (`ui-designer`)
+// ---------------------------------------------------------------------------
+//
+// No row of `docs/design.md` §10 covers the readouts, so this section is the
+// tuning table for them: every colour, size, position and duration `src/hud`
+// uses is named here, and `src/hud` holds no number of its own. User-facing
+// copy is not a tuning value and lives in `src/hud/strings.ts`, composed from
+// the §10.9 bindings above so a prompt can never disagree with the key it
+// names.
+//
+// Coordinates are in the fixed 960x540 render space. The canvas is scaled to
+// the window with `Phaser.Scale.FIT`, so the layout is identical at every
+// window size and only ever letterboxes (`docs/vision.md` §6 criterion 7); it
+// is `src/hud/layout.ts` and its test that keep every box inside the frame.
+
+/** Phaser integer colours are `0xRRGGBB`; Phaser text styles want CSS strings. */
+const cssColor = (value: number): string => `#${value.toString(16).padStart(6, '0')}`;
+
+/**
+ * The dark three-colour palette (`docs/concept.md` §8 row 4). The HUD does not
+ * introduce a fourth hue: it aliases the colours the world is already drawn in,
+ * so a readout means the same thing as the thing it describes.
+ *
+ * - INK — the hollow. The integer twin of `BACKGROUND_COLOR`.
+ * - LAMPLIGHT — the player's light. Power you still have, and your score.
+ * - EMBER — the burn. Power leaving the meter, and the word for what the
+ *   focused beam is doing.
+ * - HOLLOW — the crawlers. Labels, secondary figures, and anything cold.
+ * - FROST — a frozen crawler. Used once, to mark what killed you.
+ */
+export const HUD_INK = 0x06070b;
+export const HUD_LAMPLIGHT = BEAM_COLOR;
+export const HUD_EMBER = CRAWLER_BURN_COLOR;
+export const HUD_HOLLOW = CRAWLER_COLOR;
+export const HUD_FROST = CRAWLER_FROZEN_COLOR;
+
+export const HUD_TEXT_PRIMARY = cssColor(HUD_LAMPLIGHT);
+export const HUD_TEXT_DIM = cssColor(HUD_HOLLOW);
+export const HUD_TEXT_WARN = cssColor(HUD_EMBER);
+export const HUD_TEXT_SHADOW_COLOR = cssColor(HUD_INK);
+
+/**
+ * System font stacks. Nothing is downloaded or bundled: naming families the
+ * browser already has keeps the repository free of font files, which `AGENTS.md`
+ * would otherwise require a licence record for.
+ *
+ * Figures use the mono stack because the timer reruns ten times a second and
+ * the score changes every frame; proportional digits make a right-aligned
+ * readout twitch sideways, which is the opposite of readable at a glance.
+ */
+export const HUD_FONT_FAMILY =
+  'system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+export const HUD_FONT_FAMILY_MONO =
+  'ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace';
+
+/** Type sizes, px in render space. At the 640x360 floor these scale by 2/3. */
+export const HUD_LABEL_SIZE = 15;
+export const HUD_VALUE_SIZE = 22;
+export const HUD_SCORE_SIZE = 34;
+export const HUD_STATUS_SIZE = 15;
+export const HUD_NOTE_SIZE = 14;
+
+/** Labels are tracked out so a small uppercase word still reads as a label. */
+export const HUD_LABEL_TRACKING = 1.6;
+
+/**
+ * Height of one line of text as a multiple of its size. Phaser measures the
+ * real thing at runtime; this is the budget `src/hud/layout.ts` reserves when
+ * it proves nothing clips or overlaps, and it is deliberately generous.
+ */
+export const HUD_LINE_HEIGHT_RATIO = 1.35;
+
+/**
+ * Every HUD string carries an ink shadow. The beam sweeps under the readouts
+ * and a 0.34-alpha cone behind unshadowed text is the readability failure in
+ * `docs/concept.md` §9 happening to the HUD itself.
+ */
+export const HUD_TEXT_SHADOW_OFFSET = 2;
+export const HUD_TEXT_SHADOW_BLUR = 6;
+
+/**
+ * Draw order, above every world depth in §10.1. An overlay sits above the play
+ * readouts because its scrim covers them; within one overlay, order is the
+ * order its container holds its children in.
+ */
+export const HUD_DEPTH = 100;
+export const OVERLAY_DEPTH = 110;
+
+/**
+ * The frame the readouts live inside. Nothing is drawn outside it, which is
+ * what makes the layout safe at every window size once FIT has scaled it.
+ */
+export const HUD_MARGIN_X = 26;
+export const HUD_MARGIN_Y = 22;
+export const HUD_LEFT_X = HUD_MARGIN_X;
+export const HUD_RIGHT_X = RENDER_WIDTH - HUD_MARGIN_X;
+export const HUD_TOP_Y = HUD_MARGIN_Y;
+
+/**
+ * Width budget for one corner cluster. `src/hud/layout.ts` proves the four
+ * clusters fit inside the margins without overlapping at this width, and
+ * `PlayHud` warns in dev if a string it builds ever exceeds it.
+ */
+export const HUD_CLUSTER_MAX_WIDTH = 300;
+
+/** Separator every three digits, so a five-figure score stays countable. */
+export const HUD_DIGIT_GROUP_SEPARATOR = ' ';
+
+// --- Top-left cluster: the power meter -------------------------------------
+
+export const HUD_POWER_LABEL_Y = HUD_TOP_Y;
+export const HUD_POWER_METER_Y = 48;
+export const HUD_POWER_STATUS_Y = 68;
+
+export const HUD_POWER_METER_WIDTH = 236;
+export const HUD_POWER_METER_HEIGHT = 14;
+export const HUD_POWER_METER_CORNER_RADIUS = 3;
+
+export const HUD_POWER_TRACK_ALPHA = 0.22;
+export const HUD_POWER_BORDER_ALPHA = 0.55;
+export const HUD_POWER_BORDER_WIDTH = 1;
+
+/**
+ * Fill colour by what the power is doing, so the meter answers "can I burn?"
+ * before the player has read a digit: lamplight while it is banked, ember while
+ * it is being spent, hollow while §4.2 has focus locked out.
+ */
+export const HUD_POWER_FILL_COLOR = HUD_LAMPLIGHT;
+export const HUD_POWER_DRAIN_COLOR = HUD_EMBER;
+export const HUD_POWER_LOCKED_COLOR = HUD_HOLLOW;
+
+/**
+ * §4.2 requires the rearm threshold itself to be on screen, not just the power
+ * level. It is a tick across the track at `POWER_FOCUS_REARM`, overhanging top
+ * and bottom so it still reads when the fill has passed it.
+ */
+export const HUD_POWER_REARM_TICK_WIDTH = 2;
+export const HUD_POWER_REARM_TICK_OVERHANG = 4;
+export const HUD_POWER_REARM_TICK_COLOR = HUD_FROST;
+export const HUD_POWER_REARM_TICK_ALPHA = 0.85;
+
+// --- Top-right cluster: score and best -------------------------------------
+
+export const HUD_SCORE_LABEL_Y = HUD_TOP_Y;
+export const HUD_SCORE_VALUE_Y = 44;
+export const HUD_BEST_Y = 94;
+
+// --- Bottom-left cluster: time survived ------------------------------------
+
+export const HUD_TIME_LABEL_Y = 440;
+export const HUD_TIME_VALUE_Y = 462;
+
+// --- Bottom-right cluster: banishments, and the spawn ramp -----------------
+
+export const HUD_BANISHED_LABEL_Y = 440;
+export const HUD_BANISHED_VALUE_Y = 462;
+
+/**
+ * The spawn interval is state the game holds and pillar 2 forbids hiding, so
+ * the current value of the §5.4 ramp is printed under the banishment count.
+ */
+export const HUD_SURGE_Y = 496;
+export const HUD_SURGE_DECIMALS = 1;
+
+// --- Title screen -----------------------------------------------------------
+
+/**
+ * Heavier than the game-over scrim: there is nothing behind the title worth
+ * reading except the lamp, and the control summary has to win (`docs/vision.md`
+ * §6 criterion 5 is decided on this screen).
+ */
+export const TITLE_SCRIM_ALPHA = 0.72;
+
+export const TITLE_HEADING_Y = 62;
+export const TITLE_HEADING_SIZE = 52;
+export const TITLE_HEADING_TRACKING = 4;
+export const TITLE_TAGLINE_Y = 140;
+export const TITLE_TAGLINE_SIZE = 18;
+
+/** The control summary is a two-column table: keys right, what they do left. */
+export const TITLE_CONTROLS_TOP_Y = 182;
+export const TITLE_CONTROLS_ROW_GAP = 32;
+export const TITLE_CONTROLS_SIZE = 17;
+export const TITLE_CONTROLS_KEY_RIGHT_X = 462;
+export const TITLE_CONTROLS_TEXT_LEFT_X = 498;
+
+export const TITLE_BEST_Y = 348;
+export const TITLE_BEST_SIZE = 22;
+export const TITLE_PROMPT_Y = 402;
+export const TITLE_PROMPT_SIZE = 24;
+export const TITLE_FOOTNOTE_Y = 466;
+export const TITLE_FOOTNOTE_SIZE = 14;
+
+// --- Game-over overlay ------------------------------------------------------
+
+/**
+ * Light enough that the frozen hollow still reads through it. `docs/design.md`
+ * §2.3 keeps the crawler that killed the player rendered exactly where it was,
+ * and `docs/vision.md` §6 criterion 6 is decided by whether they can see it.
+ */
+export const GAME_OVER_SCRIM_ALPHA = 0.45;
+
+/**
+ * No overlay text comes within this of the lamp centre. The killer is touching
+ * the lamp, inside `LAMP_RADIUS + CRAWLER_RADIUS` of it, so the figures sit
+ * above and below a clear disc rather than over the evidence.
+ */
+export const GAME_OVER_CLEAR_RADIUS = 120;
+
+export const GAME_OVER_HEADING_Y = 26;
+export const GAME_OVER_HEADING_SIZE = 26;
+export const GAME_OVER_HEADING_TRACKING = 3;
+export const GAME_OVER_SCORE_LABEL_Y = 64;
+export const GAME_OVER_SCORE_VALUE_Y = 86;
+export const GAME_OVER_SCORE_SIZE = 46;
+export const GAME_OVER_STATS_Y = 396;
+export const GAME_OVER_STATS_SIZE = 18;
+export const GAME_OVER_BEST_Y = 430;
+export const GAME_OVER_BEST_SIZE = 20;
+export const GAME_OVER_PROMPT_Y = 476;
+export const GAME_OVER_PROMPT_SIZE = 22;
+
+/**
+ * A thin ring left where the crawler reached the lamp. It is drawn on the frame
+ * the run ends, with no tween and no animation — `docs/vision.md` pillar 3
+ * forbids anything between the lose state and the next playable frame, and this
+ * is a mark, not a death animation. It exists so the answer to "what killed me"
+ * is pointed at rather than searched for.
+ */
+export const GAME_OVER_MARK_RADIUS = 26;
+export const GAME_OVER_MARK_LINE_WIDTH = 2;
+export const GAME_OVER_MARK_COLOR = HUD_FROST;
+export const GAME_OVER_MARK_ALPHA = 0.9;

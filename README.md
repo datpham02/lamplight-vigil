@@ -31,6 +31,12 @@ machine and power economy, crawler freeze/burn resolution, spawn placement and
 the ramps, and scoring. Those modules import no Phaser, so they can be stepped at
 a fixed delta instead of being played by hand.
 
+The HUD's placement is in there too. The game renders at a fixed 960x540 that
+Phaser letterboxes to the window, so the layout is one set of numbers at every
+window size, and [`src/hud/layout.test.ts`](./src/hud/layout.test.ts) checks that
+no readout leaves the frame, that no two are written over each other, and that
+the game-over text never covers the lamp and the crawler frozen against it.
+
 ## Layout
 
 ```
@@ -60,16 +66,32 @@ does not end the run — it only stops you burning until the meter recovers.
 
 A crawler reaching the lamp ends the run. Press **R** to go again.
 
+### What is on screen
+
+Readouts sit in the four corners, which is the part of the frame crawlers walk
+away from rather than into.
+
+| Corner | Reads |
+| ------ | ----- |
+| Top left | Lamp power, as a bar and a figure, plus a line naming what the beam is doing for it. The tick across the track is the level focus comes back at after the meter bottoms out |
+| Top right | This run's score, and the best score it is chasing |
+| Bottom left | Time survived |
+| Bottom right | Crawlers banished, and how often one is arriving now |
+
+The power bar is lamplight while the power is banked, ember while a focused beam
+is spending it, and grey while focus is locked out and recharging to the tick.
+
 ## What is implemented so far
 
-The whole core loop: beam aiming and focus, the power meter, crawler spawning and
-movement, freeze/burn resolution, the run state machine, game over and scoring,
-with every tuning value read from `src/config` per `docs/design.md` §10.
+The whole core loop — beam aiming and focus, the power economy, crawler spawning
+and movement, freeze/burn resolution, the run state machine, game over and
+scoring — and the HUD and screens: the power meter, run timer, banishment count,
+best score, and the title and game-over overlays. Every tuning value is read from
+`src/config` per `docs/design.md` §10, including every HUD colour, size and
+position.
 
-Still to come in the "Playable Vigil" milestone: the HUD readouts and the title
-and game-over overlays, and the game-feel pass (glow, shake, sound hooks). Until
-the HUD lands, power, score and best score are emitted on the scene event bus but
-are not drawn — the loop is playable, but it does not yet tell you your numbers.
+Still to come in the "Playable Vigil" milestone: the game-feel pass (glow, shake,
+sound hooks) and the test pass.
 
 ## For agents
 
@@ -86,6 +108,9 @@ An asset with no entry in this table is a blocker, not a detail to fix later.
 | `lamp-glow` | Radial-gradient halo, generated in code at boot ([`src/beam/Lamp.ts`](./src/beam/Lamp.ts)) | Original, written for this game | Same as the repository |
 | Lamp core, beam cone | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
 | Crawlers, ambient wash | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+| HUD power meter, overlay scrims, game-over mark | Phaser shape primitives drawn in code ([`src/hud/`](./src/hud/)) | Original, written for this game | Same as the repository |
+| HUD and overlay copy | Written for this game ([`src/hud/strings.ts`](./src/hud/strings.ts)) | Original | Same as the repository |
+| HUD typefaces | None bundled. `HUD_FONT_FAMILY` and `HUD_FONT_FAMILY_MONO` in `src/config` name system font stacks (`system-ui`, `Segoe UI`, `ui-monospace`, …) that the browser already has | No font file is downloaded, bundled or committed | n/a |
 
 No binary or third-party art, audio or font files are in the repository. All
 placeholder programmer art is generated from code once at boot.

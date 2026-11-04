@@ -20,6 +20,7 @@ import {
   RENDER_WIDTH,
 } from '../config/index';
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
+import { Hud } from '../hud/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import { runScore } from './score';
 import {
@@ -105,6 +106,12 @@ export class VigilScene extends Phaser.Scene {
     this.beam = new Beam(this);
     this.lamp = new Lamp(this);
     this.crawlerRenderer = new CrawlerRenderer(this);
+
+    // The readouts and the two overlays. The HUD subscribes itself to the
+    // events below and is not referred to again from here: the scene owns the
+    // run, not what the run looks like. It is constructed before the first
+    // emitRunState() so the title screen is up on the first rendered frame.
+    new Hud(this);
 
     const keyboard = this.input.keyboard;
     if (keyboard !== null) {
