@@ -19,6 +19,7 @@ import {
   LAMP_X,
   LAMP_Y,
 } from '../config/index';
+import { BASE_TUNING, type BeamTuning } from '../config/tuning';
 import { VIGIL_EVENTS, type BeamAimedPayload, type BeamStatePayload } from '../scenes/events';
 import { BeamModel } from './BeamModel';
 import { ensureRadialGlowTexture, type RadialGlowSpec } from './glowTexture';
@@ -47,7 +48,12 @@ const BEAM_GLOW: RadialGlowSpec = {
 export class Beam {
   private readonly scene: Phaser.Scene;
   private readonly cone: Phaser.GameObjects.Graphics;
-  private readonly model = new BeamModel();
+  /**
+   * Built at the shipped values, which is what TITLE is drawn at: a run's
+   * numbers arrive in `reset`, because §14.2 resolves them at the transition to
+   * PLAYING and not before.
+   */
+  private readonly model = new BeamModel(BASE_TUNING);
 
   /** The bloom at the beam's mouth, or null if the renderer refused the bake. */
   private readonly glow: Phaser.GameObjects.Image | null;
@@ -108,9 +114,15 @@ export class Beam {
     return Phaser.Math.Angle.Between(LAMP_X, LAMP_Y, pointer.worldX, pointer.worldY);
   }
 
-  /** §2.2 — per-run reset. See BeamModel.reset. */
-  public reset(focusHeldNow: boolean): void {
-    this.model.reset(this.pointerAngleRad, focusHeldNow);
+  /**
+   * §2.2 — per-run reset. See BeamModel.reset.
+   *
+   * @param config The numbers the run being started is played at — a weekly
+   * cell's config, or the shipped values for Free Play (§14.8). Omit it and the
+   * beam keeps the ones it has, which is what `R` from game-over wants.
+   */
+  public reset(focusHeldNow: boolean, config?: BeamTuning): void {
+    this.model.reset(this.pointerAngleRad, focusHeldNow, config);
     this.syncAim();
     this.rebuildCone();
     this.renderedState = this.model.state;
