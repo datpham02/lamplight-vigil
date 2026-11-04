@@ -8,6 +8,17 @@ concept, verbatim. Sections 3, 4 and 5 below are that concept, restated for
 implementers. Where this document adds anything the concept does not say, it is
 marked **[PROPOSAL]** and is not approved scope.
 
+**Amendments.** The Board can change scope without changing the concept. Such a
+change is recorded here as a dated, numbered amendment section, and the lines it
+supersedes in §5 are annotated in place rather than deleted, so the earlier
+boundary stays readable as what it was. One amendment is in force:
+
+| Amendment | Decision | Date | Status |
+|---|---|---|---|
+| [§5b — "Online Vigil"](#5b-milestone-boundary--online-vigil) | GAM-16 | 2026-11-04 | Approved scope, except D4 (provider and hosting), which is pending |
+
+An amendment section is approved scope and is **not** marked **[PROPOSAL]**.
+
 ## 1. Vision statement
 
 Lamplight Vigil is a single-screen arcade survival game about the discipline of
@@ -156,7 +167,10 @@ From `docs/concept.md` §6.
 ## 5. MVP boundary — milestone "Playable Vigil"
 
 From `docs/concept.md` §7. A build a stranger can clone, run, play, lose and
-restart.
+restart. **This milestone has shipped** (`v0.1.0`). The section is kept as the
+record of what Playable Vigil was; it is not the current scope boundary. For the
+next milestone see [§5b](#5b-milestone-boundary--online-vigil) — three lines of
+the out-list below are annotated in place where GAM-16 moved them in.
 
 **In**
 
@@ -178,16 +192,136 @@ restart.
 
 - More enemy types, bosses, enemy variety of any kind.
 - Upgrades, meta-progression, unlocks, currencies, roguelite structure.
-- Any backend, account, leaderboard, telemetry or analytics.
+- ~~Any backend, account, leaderboard, telemetry or analytics.~~ →
+  **Backend, anonymous account and leaderboard moved in by GAM-16 (Board,
+  2026-11-04); see §5b. Telemetry and analytics stay out.**
 - Mobile, touch and gamepad support.
 - Music, narrative, cutscenes, dialogue.
 - Multiple levels, a level editor, procedural generation beyond spawn
   randomisation.
 - Advanced lighting (Light2D pipeline, custom shaders). Masks and alpha only.
-- CI, deployment, itch.io or Steam publishing.
-- Save data beyond one best score.
+- ~~CI, deployment, itch.io or Steam publishing.~~ →
+  **Public static hosting and deploy moved in by GAM-16; see §5b. Store
+  publishing stays out.**
+- ~~Save data beyond one best score.~~ →
+  **Weekly best and a display name moved in by GAM-16; see §5b.**
+
+## 5b. Milestone boundary — "Online Vigil"
+
+**Status: approved scope.** Planned in GAM-16; approved by the Board on
+**2026-11-04**. This section, not §5, is the current scope boundary. It is
+recorded here rather than in `docs/concept.md` because that file is the verbatim
+GAM-1 concept and its §7 is the record of a milestone that has now shipped;
+rewriting it would make the project's history unreadable. The concept's §4
+sentence *"no backend, no accounts, no online features"* carries a dated
+annotation pointing here.
+
+> **One decision is still open.** **D4 — provider and hosting — is pending with
+> the Board.** No provider, vendor, SDK or service name appears in this section,
+> and nothing built against it may name or assume one. Until D4 lands, the
+> backend is reachable only as the abstract capability described in item 5
+> below. Any task that needs a concrete provider is blocked on D4, not on this
+> document.
+
+### 5b.1 In
+
+1. **Weekly seeded run.** A weekly seed derived from the week key gives every
+   player the same crawler pattern for that week. **Free Play keeps an unseeded
+   run and is unranked.**
+2. **Weekly modifier** — *conditional*. In scope **if and only if** it survives
+   the bounds set for it in GAM-16. If it does not, it is out and this line is
+   struck, not renegotiated.
+3. **Online leaderboard** — the weekly board, shown on the **title and
+   game-over screens only**, plus each player's personal all-time best.
+4. **An online player identity** — anonymous on creation, optionally linked to a
+   real account later. **Display name only.**
+5. **A hosted backend-as-a-service** — no self-run server. Reached *only*
+   through the platform adapter defined in GAM-16 (see item 9). Provider is D4
+   and is pending.
+6. **Public static hosting** of the build, and the deploy step that puts it
+   there. The hosting target is part of D4 and is pending.
+7. **Offline-first as a requirement, not a nicety.** The game stays fully
+   playable with the network off or the backend down. This is **new scope that
+   must be built and tested**, not an assumed property of the existing build.
+8. **Share line** — a copyable text result. Stays, as the Board asked.
+9. **Website-readiness contract** — the platform adapter, `mount()` /
+   `destroy()`, a game manifest, and host-friendly behaviour, as specified in
+   GAM-16.
+10. **CI, bounded.** CI moves in **only** as far as build-and-deploy on merge to
+    `main`, **gated on `npm run build` and `npm test` passing** — the existing
+    commands, nothing new. Public hosting forces deployment in, and without that
+    gate the first broken merge is live to strangers. Anything beyond that gate
+    (matrix builds, new test runners, release automation, status bots) is out of
+    this milestone.
+
+### 5b.2 Out — reaffirmed
+
+Reaffirmed by the Board as out for "Online Vigil". These are vetoes, not
+backlog.
+
+- Telemetry and analytics inside the game.
+- **Ads inside the game, at any point — including the title and game-over
+  screens.** Board decision; untouched by anything above.
+- Payments and in-game purchases.
+- Chat, friends, any social graph.
+- Personal data beyond a display name. Email only if the player chooses to link
+  an account.
+- Replay recording and replay verification.
+- Server-authoritative gameplay.
+- Mobile, touch and gamepad.
+- Music.
+- More enemy types.
+- Meta-progression, unlocks and currencies.
+- Store publishing (itch.io, Steam).
+
+### 5b.3 Boundary acceptance criteria
+
+These test the **boundary**, not the features. Feature-level criteria belong to
+the design document for each item and are written per task. QA can run every
+check below against a build plus the repository, without reading gameplay code.
+A failure here is a scope breach and is filed against the milestone.
+
+| # | Criterion | How QA tests it |
+|---|---|---|
+| B1 | No provider is named while D4 is pending | Search the repository (`src/`, `tools/`, `docs/`, config, CI files, `package.json`) for any backend or hosting vendor, SDK or service name. Zero hits outside a document that explicitly records D4 as pending. Any hit is a breach of the D4 gate. |
+| B2 | Backend access is adapter-only | Every network call in `src/` originates inside the platform adapter module. No `fetch`, `XMLHttpRequest`, WebSocket or vendor SDK call appears in `src/beam`, `src/enemies`, `src/hud`, `src/scenes` or `src/main.ts`. |
+| B3 | Offline-first holds | With the network disabled in devtools, and again with the backend unreachable: title → play → lose → restart completes, best score still persists, and no error dialog, hang, or wait longer than the configured timeout blocks play. Repeat with the network restored mid-run; the run must not be disturbed. |
+| B4 | Free Play is unseeded and unranked | Two Free Play runs started in the same week produce different crawler patterns, and neither submits a score to the weekly board. |
+| B5 | Weekly seed is shared | Two clients starting a weekly run in the same week key produce the identical crawler pattern for at least the first 60 s. Across a week boundary, the pattern changes. |
+| B6 | Leaderboard placement | The weekly board appears on the title and game-over screens and **nowhere else** — it is not on screen during play, and no HUD element shows it. |
+| B7 | Identity is display-name-only | Creating an identity requires no input beyond an optional display name, collects no email, and the stored player record contains no personal field other than the display name. Linking a real account is optional and never a precondition for playing or for appearing on the board. |
+| B8 | No ads anywhere | Inspect the title, play, game-over and share flows, plus the built `dist/` output and the hosted page. Zero ad units, ad SDKs, ad network scripts or sponsored placements. Any hit is a pillar-level breach. |
+| B9 | No telemetry | With the network enabled, record all outbound requests across a full session (title → three runs → share). Every request is to the leaderboard or identity capability. No analytics, event, or session-tracking request exists. |
+| B10 | CI stays bounded | The CI configuration runs `npm run build` and `npm test`, deploys only on merge to `main`, and deploys nothing when either command fails. Confirm by merging a deliberately failing branch to a test branch target: no deploy occurs. |
+| B11 | Share line is copyable text | The share action yields plain text the tester can paste into a text editor unchanged. It is text, not an image, and it opens no third-party dialog. |
+| B12 | Website-readiness contract | The game mounts into a host-supplied element via `mount()`, releases every timer, listener and audio handle on `destroy()`, and can be mounted again afterwards in the same page without error. A game manifest is present and parses. |
+| B13 | Pillars still hold | §3's three pillar QA checks still pass on the Online Vigil build. The weekly seed, the board and the identity add no input that aims, shapes, or substitutes for the beam. |
+| B14 | Restart stays instant on a degraded network | With the connection throttled to a slow profile, and again with the backend responding but delayed past the configured timeout, press R from game over: the first playable frame still arrives in ≤ 1.0 s, with no intermediate screen and no wait on a score submission or board fetch. Pending network work never sits on the restart path. (§6 criterion 1, pillar 3.) |
+| B15 | Game over stays legible with the board on it | With the weekly board present and populated, a tester who has just died still names what killed them within one second of the game-over screen appearing. The board must not be the first thing that takes their eye. (§6 criterion 6, pillar 2.) |
+
+**Note on B1.** This check expires when the Board decides D4. It is a gate on
+the pending decision, not a permanent rule.
+
+**Note on B14 and B15.** These two are pillar checks, not scope checks. The
+amendment puts the weekly board, a score submission and a personal best onto the
+**game-over screen** — the same screen §6 criteria 1 and 6 are measured on — so
+they are tested here under the conditions the amendment creates rather than left
+to B13's general pass. B3 is not a substitute for B14: a disabled network and an
+unreachable backend both fail fast, while a backend that is alive and slow is the
+realistic way the restart path breaks. A failure in either is a **pillar
+failure**, filed as such, not a scope breach.
+
+**Note on 5b.1 item 2.** Until the weekly modifier clears its GAM-16 bounds, QA
+has nothing to test for it and should not write criteria against it. It has no
+boundary check above by design.
 
 ## 6. Success criteria — "Playable Vigil"
+
+**This milestone has shipped** (`v0.1.0`). Like §5, this section is kept as the
+record of what Playable Vigil had to meet. The criteria do not expire with the
+milestone: criteria 1 and 6 are pillar measures, and
+[§5b.3](#5b3-boundary-acceptance-criteria) B14 and B15 re-test them under the
+conditions "Online Vigil" creates.
 
 QA can test each of these directly.
 
@@ -249,3 +383,7 @@ Recorded so they are not reopened. All three are settled in `docs/concept.md`:
 6. **[PROPOSAL] Auto-pause on window blur.** A browser game loses focus
    constantly. Proposed for the milestone after Playable Vigil; it touches nothing
    in the MVP scope above. Sequencing is `producer`'s call.
+   **Not taken into "Online Vigil" (2026-11-04).** The milestone after Playable
+   Vigil now has a name and a closed in-list ([§5b.1](#5b1-in)), and auto-pause is
+   not on it. It stays an open proposal for a later milestone; sequencing remains
+   `producer`'s call.
