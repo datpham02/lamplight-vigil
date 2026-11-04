@@ -16,8 +16,8 @@ import { HUD_NEXT_SPAWN_DECIMALS, HUD_SURGE_DECIMALS } from '../config/index';
 // it. `spawnInterval` is that module's own pure export and is the only thing
 // taken; `src/enemies/CrawlerField.test.ts` reaches for it the same way.
 import { spawnInterval } from '../enemies/CrawlerField';
-import type { ScorePayload } from '../scenes/events';
-import { formatCount, formatRunTime, formatSeconds } from './layout';
+import type { ScorePayload, WeekPayload } from '../scenes/events';
+import { formatCount, formatRunTime, formatSeconds, resetCountdownParts } from './layout';
 import * as strings from './strings';
 
 /** Every string the play HUD shows for a given score payload. */
@@ -56,4 +56,28 @@ export function scoreReadouts(payload: ScorePayload): ScoreReadouts {
       formatSeconds(spawnInterval(payload.elapsedSeconds), HUD_SURGE_DECIMALS),
     ),
   };
+}
+
+/**
+ * The week row, on the title screen before a run and on the game-over screen
+ * after it (`docs/design.md` §14.2, §14.5, criterion 27).
+ *
+ * One composer for both screens, for the same reason `scoreReadouts` exists:
+ * "the screen names the week and its modifier" is then a claim settled at a
+ * node prompt, over the real table and a real `msRemainingInWeek()` reading,
+ * rather than by looking at a browser and believing it.
+ *
+ * Free Play has no week, so it has no row: §14.8 resolves no entry there at
+ * all, and a mode that never reads the clock must not print one.
+ */
+export function weekReadout(week: WeekPayload | null): string {
+  if (week === null) {
+    return '';
+  }
+
+  return strings.weekLine(
+    week.key,
+    strings.weeklyCellLine(week.entryId, week.valueIndex),
+    strings.weekResetLine(resetCountdownParts(week.msRemaining)),
+  );
 }

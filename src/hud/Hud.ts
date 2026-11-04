@@ -21,6 +21,7 @@ import {
   type PowerPayload,
   type RunStatePayload,
   type ScorePayload,
+  type WeekPayload,
 } from '../scenes/events';
 import { GameOverOverlay } from './GameOverOverlay';
 import { NameEditorOverlay } from './NameEditorOverlay';
@@ -76,6 +77,7 @@ export class Hud {
 
     scene.events.on(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
     scene.events.on(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
+    scene.events.on(VIGIL_EVENTS.WEEK_CHANGED, this.onWeek, this);
     scene.events.on(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     scene.events.on(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     scene.events.on(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);
@@ -125,6 +127,18 @@ export class Hud {
     this.nameEditor.show(payload);
   }
 
+  /**
+   * §14.2 — the week the title screen is naming, or a minute of it passing.
+   *
+   * A title-screen event: it is written straight to the title overlay and
+   * reaches no other screen. The week a *run* was played under arrives on the
+   * run-state payload instead, and the play HUD is handed neither — C2.2 keeps
+   * every frame of PLAYING clear of the week.
+   */
+  private onWeek(payload: WeekPayload): void {
+    this.title.showWeek(payload);
+  }
+
   /** §2.5 — the run is suspended, or is not any more. */
   private onPause(payload: PausePayload): void {
     this.pause.setVisible(payload.paused);
@@ -156,6 +170,7 @@ export class Hud {
 
     events.off(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
     events.off(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
+    events.off(VIGIL_EVENTS.WEEK_CHANGED, this.onWeek, this);
     events.off(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     events.off(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     events.off(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);

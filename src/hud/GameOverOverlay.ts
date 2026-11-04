@@ -36,6 +36,8 @@ import {
   GAME_OVER_SCRIM_ALPHA,
   GAME_OVER_STATS_SIZE,
   GAME_OVER_STATS_Y,
+  GAME_OVER_WEEK_SIZE,
+  GAME_OVER_WEEK_Y,
   HUD_LABEL_SIZE,
   HUD_LABEL_TRACKING,
   HUD_TEXT_DIM,
@@ -45,6 +47,7 @@ import {
 } from '../config/index';
 import type { PointPayload, RunStatePayload } from '../scenes/events';
 import { formatCount, formatRunTime } from './layout';
+import { weekReadout } from './readouts';
 import { scrim } from './scrim';
 import * as strings from './strings';
 import { hudText, setTextIfChanged } from './text';
@@ -58,6 +61,13 @@ export class GameOverOverlay {
   private readonly score: Phaser.GameObjects.Text;
   private readonly stats: Phaser.GameObjects.Text;
   private readonly best: Phaser.GameObjects.Text;
+
+  /**
+   * `docs/design.md` §14.8 — the week this run was played under, in the same
+   * words the title screen used before it, and empty in Free Play, which
+   * resolves no week at all.
+   */
+  private readonly week: Phaser.GameObjects.Text;
 
   public constructor(scene: Phaser.Scene) {
     this.mark = scene.add.graphics();
@@ -76,6 +86,14 @@ export class GameOverOverlay {
       y: GAME_OVER_STATS_Y,
       content: '',
       size: GAME_OVER_STATS_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'center',
+    });
+    this.week = hudText(scene, {
+      x: CENTER_X,
+      y: GAME_OVER_WEEK_Y,
+      content: '',
+      size: GAME_OVER_WEEK_SIZE,
       color: HUD_TEXT_DIM,
       align: 'center',
     });
@@ -113,6 +131,7 @@ export class GameOverOverlay {
       }),
       this.score,
       this.stats,
+      this.week,
       this.best,
       hudText(scene, {
         x: CENTER_X,
@@ -142,8 +161,18 @@ export class GameOverOverlay {
     setTextIfChanged(this.score, formatCount(run.score));
     setTextIfChanged(
       this.stats,
-      strings.gameOverStatsLine(formatRunTime(run.elapsedSeconds), formatCount(run.banished)),
+      strings.gameOverStatsLine(
+        run.mode,
+        formatRunTime(run.elapsedSeconds),
+        formatCount(run.banished),
+      ),
     );
+
+    // §14.8 and criterion 27 — the week the run was played under, taken from
+    // the payload rather than from the clock: §14.2 resolved it once at the
+    // run's start, and a week that rolled over mid-run must not rename the run
+    // that has just ended.
+    setTextIfChanged(this.week, weekReadout(run.week));
 
     const best = formatCount(run.bestScore);
     setTextIfChanged(

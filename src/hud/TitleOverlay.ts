@@ -10,6 +10,15 @@
 // The key names come from `src/config` via `strings.ts`, never from a literal
 // here, so the prompt cannot name a key the game does not listen to
 // (`docs/design.md` §7).
+//
+// It is also the only screen in the game that offers a choice, and §14.8 is why
+// there is exactly one: the mode. Reading down, the bottom of this screen is
+// four rows in the order a player needs them — who this lamp is kept by, the
+// best it has done, **what this week is**, and **the other mode and the key
+// that begins it** — and then the prompt, which names the mode every *other*
+// key begins. The choice lives here and nowhere else (C3.2): there is no mode
+// row on the game-over screen, because `R` restarts the mode just played and
+// pillar 3 does not let the restart path grow a step.
 
 import Phaser from 'phaser';
 
@@ -27,6 +36,8 @@ import {
   TITLE_CONTROLS_TOP_Y,
   TITLE_FOOTNOTE_SIZE,
   TITLE_FOOTNOTE_Y,
+  TITLE_FREE_PLAY_SIZE,
+  TITLE_FREE_PLAY_Y,
   TITLE_HEADING_SIZE,
   TITLE_HEADING_TRACKING,
   TITLE_HEADING_Y,
@@ -37,9 +48,12 @@ import {
   TITLE_SCRIM_ALPHA,
   TITLE_TAGLINE_SIZE,
   TITLE_TAGLINE_Y,
+  TITLE_WEEK_SIZE,
+  TITLE_WEEK_Y,
 } from '../config/index';
-import type { DisplayNamePayload } from '../scenes/events';
+import type { DisplayNamePayload, WeekPayload } from '../scenes/events';
 import { formatCount } from './layout';
+import { weekReadout } from './readouts';
 import { scrim } from './scrim';
 import * as strings from './strings';
 import { hudText, setTextIfChanged } from './text';
@@ -58,11 +72,16 @@ export class TitleOverlay {
   private readonly name: Phaser.GameObjects.Text;
 
   /**
-   * §15.4 — the prompt, which has two readings. While the rename key is being
-   * offered it is the one key that does not start a run, and the prompt says
-   * "any other key" for exactly as long as that is true.
+   * §14.2 and §14.8 — the week a run begun from this screen would be played
+   * under, and how long is left of it.
+   *
+   * Written from the week event rather than from `show()` for the same reason
+   * the name row is: it changes while the title screen is already up. The
+   * countdown runs on the wall clock, and a title screen left open across the
+   * end of a week says so on the frame it happens rather than offering a week
+   * that has already ended (pillar 2, criterion 27).
    */
-  private readonly prompt: Phaser.GameObjects.Text;
+  private readonly week: Phaser.GameObjects.Text;
 
   public constructor(scene: Phaser.Scene) {
     const children: Phaser.GameObjects.GameObject[] = [scrim(scene, TITLE_SCRIM_ALPHA)];
@@ -135,11 +154,14 @@ export class TitleOverlay {
       mono: true,
     });
 
-    this.prompt = hudText(scene, {
+    // Lamplight, and directly above the prompt: this is the run the next key
+    // press begins. It opens empty only for the frames before the scene's
+    // first week event, which is emitted in create() alongside the name.
+    this.week = hudText(scene, {
       x: CENTER_X,
-      y: TITLE_PROMPT_Y,
-      content: strings.TITLE_PROMPT,
-      size: TITLE_PROMPT_SIZE,
+      y: TITLE_WEEK_Y,
+      content: '',
+      size: TITLE_WEEK_SIZE,
       color: HUD_TEXT_PRIMARY,
       align: 'center',
     });
@@ -147,7 +169,28 @@ export class TitleOverlay {
     children.push(
       this.name,
       this.best,
-      this.prompt,
+      this.week,
+
+      // §14.8 — the other mode and the one key that begins it. Hollow, because
+      // every *other* key begins the weekly vigil named above it.
+      hudText(scene, {
+        x: CENTER_X,
+        y: TITLE_FREE_PLAY_Y,
+        content: strings.TITLE_FREE_PLAY,
+        size: TITLE_FREE_PLAY_SIZE,
+        color: HUD_TEXT_DIM,
+        align: 'center',
+      }),
+
+      hudText(scene, {
+        x: CENTER_X,
+        y: TITLE_PROMPT_Y,
+        content: strings.TITLE_PROMPT,
+        size: TITLE_PROMPT_SIZE,
+        color: HUD_TEXT_PRIMARY,
+        align: 'center',
+      }),
+
       hudText(scene, {
         x: CENTER_X,
         y: TITLE_FOOTNOTE_Y,
@@ -177,7 +220,7 @@ export class TitleOverlay {
   }
 
   /**
-   * §15.2 — the name row, and the prompt that depends on it.
+   * §15.2 — the name row.
    *
    * Called whether or not the title screen is up: the row is written when the
    * name changes, so that the screen is already right on the frame it is shown
@@ -185,10 +228,14 @@ export class TitleOverlay {
    */
   public showDisplayName(payload: DisplayNamePayload): void {
     setTextIfChanged(this.name, strings.displayNameRow(payload.name, payload.renameLockDays));
-    setTextIfChanged(
-      this.prompt,
-      payload.renameLockDays > 0 ? strings.TITLE_PROMPT : strings.TITLE_PROMPT_WITH_RENAME,
-    );
+  }
+
+  /**
+   * §14.2 — the week, its one modifier in plain words, and the countdown to the
+   * reset. Same call for a new week and for a minute passing inside one.
+   */
+  public showWeek(payload: WeekPayload): void {
+    setTextIfChanged(this.week, weekReadout(payload));
   }
 
   public hide(): void {

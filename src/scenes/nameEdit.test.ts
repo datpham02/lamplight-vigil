@@ -7,7 +7,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { DISPLAY_NAME_MAX_LENGTH, INPUT_RENAME_KEY, INPUT_RESTART_KEY } from '../config/index';
+import {
+  DISPLAY_NAME_MAX_LENGTH,
+  INPUT_FREE_PLAY_KEY,
+  INPUT_RENAME_KEY,
+  INPUT_RESTART_KEY,
+} from '../config/index';
 import {
   KEY_ACTION,
   backspaceName,
@@ -29,9 +34,17 @@ describe('where a keystroke goes (§15.4, §15.5)', () => {
 
   it('sends every key to the run when the game is not on the title screen', () => {
     // Condition C3.2, as an assertion: from GAME_OVER there is no key — not the
-    // rename key, not any other — that reaches the name. This is what keeps a
-    // name step out of the path between dying and playing again.
-    for (const key of [...PRINTABLE, INPUT_RENAME_KEY, INPUT_RESTART_KEY, 'Enter', 'Escape']) {
+    // rename key, not the Free Play key, not any other — that reaches the name
+    // or chooses a mode. This is what keeps a name step and a mode step out of
+    // the path between dying and playing again, in both modes (criterion 29).
+    for (const key of [
+      ...PRINTABLE,
+      INPUT_RENAME_KEY,
+      INPUT_FREE_PLAY_KEY,
+      INPUT_RESTART_KEY,
+      'Enter',
+      'Escape',
+    ]) {
       assert.equal(keyAction(offTitle, key), KEY_ACTION.RUN_INPUT, `${key} goes to the run`);
     }
   });
@@ -50,10 +63,45 @@ describe('where a keystroke goes (§15.4, §15.5)', () => {
 
   it('starts a run on every other key while the editor is shut', () => {
     const onTitle = { onTitle: true, editing: false, renameAvailable: true };
+    const offered = new Set([INPUT_RENAME_KEY, INPUT_FREE_PLAY_KEY]);
 
-    for (const key of PRINTABLE.filter((key) => key.toUpperCase() !== INPUT_RENAME_KEY)) {
+    for (const key of PRINTABLE.filter((key) => !offered.has(key.toUpperCase()))) {
       assert.equal(keyAction(onTitle, key), KEY_ACTION.RUN_INPUT, `${key} begins a run`);
     }
+  });
+
+  it('offers the Free Play key on the title screen, and only there (§14.8)', () => {
+    // The mode choice is one key press, and it lives on the title screen
+    // only — GAM-16 condition C3.2. Every key that is not this one begins the
+    // weekly vigil, which is what the title prompt names.
+    const onTitle = { onTitle: true, editing: false, renameAvailable: true };
+
+    assert.equal(keyAction(onTitle, INPUT_FREE_PLAY_KEY), KEY_ACTION.START_FREE_PLAY);
+    assert.equal(
+      keyAction(onTitle, INPUT_FREE_PLAY_KEY.toLowerCase()),
+      KEY_ACTION.START_FREE_PLAY,
+      'the key is the key, shifted or not',
+    );
+    assert.equal(
+      keyAction(offTitle, INPUT_FREE_PLAY_KEY),
+      KEY_ACTION.RUN_INPUT,
+      'from GAME_OVER it is inert: R restarts the mode just played, and nothing asks again',
+    );
+  });
+
+  it('keeps the two offered keys distinct', () => {
+    // A single binding doing both jobs would make one of them unreachable, and
+    // the title screen names both on rows of their own.
+    assert.notEqual(INPUT_FREE_PLAY_KEY, INPUT_RENAME_KEY);
+    assert.notEqual(INPUT_FREE_PLAY_KEY, INPUT_RESTART_KEY);
+  });
+
+  it('still begins Free Play while a rename is on cooldown', () => {
+    // The two exceptions are independent: the rename key stops being offered,
+    // the mode choice never does.
+    const locked = { onTitle: true, editing: false, renameAvailable: false };
+
+    assert.equal(keyAction(locked, INPUT_FREE_PLAY_KEY), KEY_ACTION.START_FREE_PLAY);
   });
 
   it('gives the rename key back to the run while a rename is on cooldown', () => {
@@ -67,7 +115,14 @@ describe('where a keystroke goes (§15.4, §15.5)', () => {
   it('gives every key to the field while the editor is open', () => {
     const editing = { onTitle: true, editing: true, renameAvailable: true };
 
-    for (const key of [...PRINTABLE, INPUT_RENAME_KEY, INPUT_RESTART_KEY, 'Enter', 'Escape']) {
+    for (const key of [
+      ...PRINTABLE,
+      INPUT_RENAME_KEY,
+      INPUT_FREE_PLAY_KEY,
+      INPUT_RESTART_KEY,
+      'Enter',
+      'Escape',
+    ]) {
       assert.equal(keyAction(editing, key), KEY_ACTION.EDIT_NAME, `${key} is typing, not playing`);
     }
   });

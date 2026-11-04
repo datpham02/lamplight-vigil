@@ -37,6 +37,28 @@ export const RUN_STATE = {
 export type RunState = (typeof RUN_STATE)[keyof typeof RUN_STATE];
 
 // ---------------------------------------------------------------------------
+// Run mode — docs/design.md §14.8
+// ---------------------------------------------------------------------------
+
+/**
+ * Which of the two modes a run is played in.
+ *
+ * Named here with the other two vocabularies because both screens have to read
+ * it: the title screen offers the choice (GAM-16 condition C3.2 — there and
+ * nowhere else), and the game-over screen names the mode the run was played in,
+ * because one best score now spans two configurations and an unlabelled number
+ * is state the screen is not showing (§14.8).
+ */
+export const RUN_MODE = {
+  /** The week's entry and the week's dice, resolved once at the run's start. */
+  WEEKLY: 'weekly',
+  /** §14.8 — unseeded, unranked, and carrying no modifier. */
+  FREE_PLAY: 'free-play',
+} as const;
+
+export type RunMode = (typeof RUN_MODE)[keyof typeof RUN_MODE];
+
+// ---------------------------------------------------------------------------
 // Beam state — docs/design.md §3.1
 // ---------------------------------------------------------------------------
 
@@ -98,6 +120,17 @@ export const VIGIL_EVENTS = {
    * restart path.
    */
   DISPLAY_NAME_CHANGED: 'name:changed',
+  /**
+   * The week the title screen is naming, or the countdown inside it, moved
+   * (`docs/design.md` §14.2, §14.8). Payload: WeekPayload.
+   *
+   * A title-screen event, like DISPLAY_NAME_CHANGED: it fires on entry to TITLE
+   * and then only on a title frame where the countdown's minute changed, which
+   * is also the frame a week rollover is noticed on. No frame of PLAYING emits
+   * it, and the week a *run* was played under does not come this way — that
+   * rides on RunStatePayload, resolved once at the run's start and held.
+   */
+  WEEK_CHANGED: 'week:changed',
 } as const;
 
 /** Payload for VIGIL_EVENTS.BEAM_AIMED. */
@@ -126,6 +159,32 @@ export interface PowerPayload {
   readonly focusLockedOut: boolean;
 }
 
+/**
+ * One week, as a screen has to say it (`docs/design.md` §14.2, §14.5).
+ *
+ * The cell is carried as the pair that identifies it — the entry's `id` and the
+ * index of the value it drew — rather than as the entry itself, because that
+ * pair is what a submission records (§14.4) and is all the HUD needs in order to
+ * find the week's words. `src/hud/strings.ts` owns those words; the table in
+ * `src/config` owns the numbers; neither has to import the other.
+ */
+export interface WeekPayload {
+  /** §14.2 — `2026-W45`. */
+  readonly key: string;
+  /** §14.5 — the entry's `id`, e.g. `restless-hollow`. */
+  readonly entryId: string;
+  /** Which of that entry's values this week drew. */
+  readonly valueIndex: number;
+  /**
+   * Milliseconds left in this week, from `msRemainingInWeek()`.
+   *
+   * Carried as a duration and never as an instant, because the screen states a
+   * countdown and never a clock time: §14.2 will not have an unqualified hour on
+   * screen, and a qualified one would put a time zone on a title screen.
+   */
+  readonly msRemaining: number;
+}
+
 /** Payload for VIGIL_EVENTS.RUN_STATE_CHANGED. */
 export interface RunStatePayload {
   readonly state: RunState;
@@ -134,6 +193,22 @@ export interface RunStatePayload {
   readonly banished: number;
   readonly elapsedSeconds: number;
   readonly bestScore: number;
+  /**
+   * §14.8 — which mode this run is, or was, played in. On TITLE it is the mode
+   * the prompt is offering, which is the weekly vigil: every key but
+   * `INPUT_FREE_PLAY_KEY` begins one.
+   */
+  readonly mode: RunMode;
+  /**
+   * The week this run was played under, or null in Free Play and on TITLE.
+   *
+   * §14.2 resolves it once, at the transition to PLAYING, and holds it for the
+   * whole run: a clock change, a rollover or a laptop waking from sleep mid-run
+   * never retunes a run in progress, and never renames the week the game-over
+   * screen is about to state. The HUD shows it on GAME_OVER only — C2.2 keeps
+   * every frame of PLAYING clear of it.
+   */
+  readonly week: WeekPayload | null;
 }
 
 /** Payload for VIGIL_EVENTS.PAUSE_CHANGED. */

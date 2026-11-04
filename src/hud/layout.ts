@@ -26,6 +26,8 @@ import {
   GAME_OVER_SCORE_VALUE_Y,
   GAME_OVER_STATS_SIZE,
   GAME_OVER_STATS_Y,
+  GAME_OVER_WEEK_SIZE,
+  GAME_OVER_WEEK_Y,
   HUD_BANISHED_LABEL_Y,
   HUD_BANISHED_VALUE_Y,
   HUD_BEST_Y,
@@ -48,11 +50,13 @@ import {
   HUD_SCORE_SIZE,
   HUD_SCORE_VALUE_Y,
   HUD_STATUS_SIZE,
+  HUD_TEXT_WIDTH_RATIO,
   HUD_SURGE_Y,
   HUD_TIME_LABEL_Y,
   HUD_TIME_VALUE_Y,
   HUD_VALUE_SIZE,
   LAMP_Y,
+  MS_PER_SECOND,
   NAME_EDITOR_CARET_GAP,
   NAME_EDITOR_CARET_WIDTH,
   NAME_EDITOR_FIELD_HEIGHT,
@@ -69,6 +73,7 @@ import {
   NAME_EDITOR_PROMPT_Y,
   NAME_EDITOR_RULE_SIZE,
   NAME_EDITOR_RULE_Y,
+  RENDER_HEIGHT,
   RENDER_WIDTH,
   TITLE_BEST_SIZE,
   TITLE_BEST_Y,
@@ -77,6 +82,8 @@ import {
   TITLE_CONTROLS_TOP_Y,
   TITLE_FOOTNOTE_SIZE,
   TITLE_FOOTNOTE_Y,
+  TITLE_FREE_PLAY_SIZE,
+  TITLE_FREE_PLAY_Y,
   TITLE_HEADING_SIZE,
   TITLE_HEADING_Y,
   TITLE_NAME_SIZE,
@@ -85,6 +92,8 @@ import {
   TITLE_PROMPT_Y,
   TITLE_TAGLINE_SIZE,
   TITLE_TAGLINE_Y,
+  TITLE_WEEK_SIZE,
+  TITLE_WEEK_Y,
 } from '../config/index';
 
 // ---------------------------------------------------------------------------
@@ -98,6 +107,11 @@ const TENTHS_PER_MINUTE = TENTHS_PER_SECOND * SECONDS_PER_MINUTE;
 
 /** Digits per group in a written-out figure. */
 const DIGITS_PER_GROUP = 3;
+
+/** Clock units, for the countdown to the weekly reset. */
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+const MS_PER_MINUTE = SECONDS_PER_MINUTE * MS_PER_SECOND;
 
 /** Width of the seconds field in the run timer, so `0:07.4` does not shuffle. */
 const SECONDS_FIELD_WIDTH = 2;
@@ -147,6 +161,39 @@ export function formatCount(value: number): string {
 export function formatSeconds(seconds: number, places: number): string {
   const safe = Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
   return safe.toFixed(places);
+}
+
+/** What is left of the week, split into the units a screen says it in. */
+export interface ResetCountdown {
+  readonly days: number;
+  readonly hours: number;
+  readonly minutes: number;
+}
+
+/**
+ * `msRemainingInWeek()` split into whole days, hours and minutes
+ * (`docs/design.md` §14.2).
+ *
+ * Every part is **truncated**, never rounded: "resets in 2d 14h" is then a
+ * floor on the time the player actually has, and a week with 2d 14h 59m left
+ * never promises an hour it is about to take back. The §15.2 rename cooldown
+ * rounds the other way for the opposite reason — it is a lock, and a lock that
+ * says "0 days" is a lock contradicting the shut door beside it.
+ *
+ * A nonsense or already-expired reading is zero in every unit, which the HUD
+ * says in words rather than as `0d 0h`.
+ */
+export function resetCountdownParts(msRemaining: number): ResetCountdown {
+  const safe = Number.isFinite(msRemaining) && msRemaining > 0 ? msRemaining : 0;
+
+  const totalMinutes = Math.floor(safe / MS_PER_MINUTE);
+  const totalHours = Math.floor(totalMinutes / MINUTES_PER_HOUR);
+
+  return {
+    days: Math.floor(totalHours / HOURS_PER_DAY),
+    hours: totalHours % HOURS_PER_DAY,
+    minutes: totalMinutes % MINUTES_PER_HOUR,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,6 +321,8 @@ export const TITLE_BOXES: readonly HudBox[] = [
   overlayRow('control row 4', TITLE_CONTROLS_TOP_Y + TITLE_CONTROLS_ROW_GAP * 3, TITLE_CONTROLS_SIZE),
   overlayRow('title display name', TITLE_NAME_Y, TITLE_NAME_SIZE),
   overlayRow('title best score', TITLE_BEST_Y, TITLE_BEST_SIZE),
+  overlayRow('title week', TITLE_WEEK_Y, TITLE_WEEK_SIZE),
+  overlayRow('title free play', TITLE_FREE_PLAY_Y, TITLE_FREE_PLAY_SIZE),
   overlayRow('title prompt', TITLE_PROMPT_Y, TITLE_PROMPT_SIZE),
   overlayRow('title footnote', TITLE_FOOTNOTE_Y, TITLE_FOOTNOTE_SIZE),
 ];
@@ -284,6 +333,7 @@ export const GAME_OVER_BOXES: readonly HudBox[] = [
   overlayRow('game-over score label', GAME_OVER_SCORE_LABEL_Y, HUD_LABEL_SIZE),
   overlayRow('game-over score', GAME_OVER_SCORE_VALUE_Y, GAME_OVER_SCORE_SIZE),
   overlayRow('game-over stats', GAME_OVER_STATS_Y, GAME_OVER_STATS_SIZE),
+  overlayRow('game-over week', GAME_OVER_WEEK_Y, GAME_OVER_WEEK_SIZE),
   overlayRow('game-over best', GAME_OVER_BEST_Y, GAME_OVER_BEST_SIZE),
   overlayRow('game-over prompt', GAME_OVER_PROMPT_Y, GAME_OVER_PROMPT_SIZE),
 ];
@@ -325,6 +375,24 @@ export function nameDraftWidth(characters: number): number {
   return glyphs + NAME_EDITOR_CARET_GAP + NAME_EDITOR_CARET_WIDTH;
 }
 
+/**
+ * A conservative estimate of how wide a proportional HUD string is, in px.
+ *
+ * `tracking` is added per character because `hudText` applies letter spacing
+ * the same way, so a tracked heading is budgeted as the tracked thing it is.
+ */
+export function overlayTextWidth(content: string, size: number, tracking = 0): number {
+  return content.length * (size * HUD_TEXT_WIDTH_RATIO + tracking);
+}
+
+/**
+ * The widest a centred overlay row may be. A row that needs more than this has
+ * run out past the margins on both sides, which is the one way these screens
+ * can fail horizontally — the box model budgets every centred row at the full
+ * frame width, so it cannot see this one.
+ */
+export const OVERLAY_ROW_BUDGET = HUD_RIGHT_X - HUD_LEFT_X;
+
 /** The widest a draft may be before it touches the field's padding. */
 export const NAME_FIELD_TEXT_BUDGET = NAME_EDITOR_FIELD_WIDTH - NAME_EDITOR_FIELD_PADDING_X * 2;
 
@@ -354,4 +422,47 @@ export const GAME_OVER_CLEAR_BAND = {
 /** Whether two boxes share any area. Touching edges do not count as overlap. */
 export function overlaps(a: HudBox, b: HudBox): boolean {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+// ---------------------------------------------------------------------------
+// The window the frame is scaled into — vision.md §6 criterion 7
+// ---------------------------------------------------------------------------
+
+/** A window, or an element, the game has been mounted into. */
+export interface Viewport {
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * `Phaser.Scale.FIT`: one uniform scale, the larger of the two axes
+ * letterboxed. The game renders at a fixed 960x540 and is scaled to the element
+ * it was mounted into (`AGENTS.md`), so this is the whole of what a window size
+ * does to the layout.
+ */
+export function fitScale(viewport: Viewport): number {
+  return Math.min(viewport.width / RENDER_WIDTH, viewport.height / RENDER_HEIGHT);
+}
+
+/**
+ * Where a box lands in a window of this size, once FIT has scaled and centred
+ * the frame inside it.
+ *
+ * Written out rather than argued about in a comment: the claim that a layout
+ * proved at 960x540 is proved at 640x360 and at 2560x1440 is only true because
+ * the transform below is uniform and the same for every box, and a test that
+ * runs it is worth more than a paragraph asserting it.
+ */
+export function fitBox(box: HudBox, viewport: Viewport): HudBox {
+  const scale = fitScale(viewport);
+  const offsetX = (viewport.width - RENDER_WIDTH * scale) / 2;
+  const offsetY = (viewport.height - RENDER_HEIGHT * scale) / 2;
+
+  return {
+    name: box.name,
+    left: offsetX + box.left * scale,
+    top: offsetY + box.top * scale,
+    right: offsetX + box.right * scale,
+    bottom: offsetY + box.bottom * scale,
+  };
 }
