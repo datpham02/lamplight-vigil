@@ -2130,13 +2130,24 @@ What the key does is open a screen the Board has already required to exist —
 C3.2 asks for a name that is editable from the title screen, which cannot be done
 without an affordance there.
 
-**It is also the one key on the title screen that does not start a run**, and
-that is stated rather than hidden. While the key is offered the prompt reads
-`PRESS ANY OTHER KEY OR CLICK TO BEGIN`; the moment it stops being offered —
-because a rename is on cooldown — every key starts a run again and the prompt
-goes back to `PRESS ANY KEY OR CLICK TO BEGIN`. The exception is on screen for
-exactly as long as the exception is real, which is what pillar 2 asks of every
-other string in this game.
+**It is a key on the title screen that does not start a run**, and that is
+stated rather than hidden. While it is offered it is named on the title row, and
+the prompt says "any *other* key" — the exception is on screen for exactly as
+long as the exception is real, which is what pillar 2 asks of every other string
+in this game.
+
+*Amended 2026-11-04 (GAM-45).* This paragraph called `INPUT_RENAME_KEY` **the
+one** key on the title screen that does not start a run, and had the prompt fall
+back to `PRESS ANY KEY OR CLICK TO BEGIN` the moment a rename went on cooldown.
+§14.8's mode choice makes that false: `INPUT_FREE_PLAY_KEY` is a second
+title-only key, it is offered on every title frame rather than on a cooldown,
+and the prompt it leaves is
+`PRESS ANY OTHER KEY OR CLICK TO BEGIN THE WEEKLY VIGIL` — which also names the
+mode that every other key begins, because a screen offering two modes may not
+leave which one "begin" means to be guessed. Both exceptions are named on rows
+directly above the prompt. Nothing else in §15 changes: the rename key is still
+TITLE-only, still inert in PLAYING and GAME_OVER, and `R` still bypasses all of
+it.
 
 A pointer affordance was considered and rejected: the mouse is the aim device,
 and a mis-click on the title screen opening a modal is worse than a key that is

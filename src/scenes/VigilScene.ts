@@ -18,11 +18,12 @@ import {
   POWER_MAX,
   RENDER_HEIGHT,
   RENDER_WIDTH,
+  WEEK_COUNTDOWN_TICK_MS,
 } from '../config/index';
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
-import { freePlayRun, type RunSetup } from '../weekly/index';
+import { freePlayRun, msRemainingInWeek, weeklyRunAt, type RunSetup } from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import {
   canRename,
@@ -44,15 +45,18 @@ import { RestartClock } from './restartClock';
 import { runScore } from './score';
 import { VigilFeedback } from './VigilFeedback';
 import {
+  RUN_MODE,
   RUN_STATE,
   VIGIL_EVENTS,
   type DisplayNamePayload,
   type PausePayload,
   type PointPayload,
   type PowerPayload,
+  type RunMode,
   type RunState,
   type RunStatePayload,
   type ScorePayload,
+  type WeekPayload,
 } from './events';
 
 /**
@@ -118,6 +122,45 @@ export class VigilScene extends Phaser.Scene {
    * the run, so it must not be cleared in init().
    */
   private host: HostContext | null = null;
+
+  /**
+   * §14.8 — which mode the current run is being played in.
+   *
+   * Chosen on the title screen and nowhere else (C3.2), and deliberately *not*
+   * reset by `startRun`: `R` from game-over restarts the mode just played, so
+   * the mode has to outlive the run it belonged to. The only things that set it
+   * are the two title-screen paths — `INPUT_FREE_PLAY_KEY`, and every other key
+   * or a click — which is pillar 3 holding: the restart path never grows a step
+   * because there is no mode question on it to answer.
+   */
+  private mode: RunMode = RUN_MODE.WEEKLY;
+
+  /**
+   * §14.2 — the week this run is being played under, resolved once at the
+   * transition to PLAYING and held for the whole run, or null in Free Play.
+   *
+   * Held without its countdown: `weekEndsAtMs` carries that, so a game-over
+   * screen shown twenty minutes into a run states what is left of the week
+   * *now* rather than what was left when the run began.
+   */
+  private runWeek: Omit<WeekPayload, 'msRemaining'> | null = null;
+
+  /**
+   * The instant the run's week ends, as a real clock reading.
+   *
+   * Taken once beside the week itself, so the countdown on the game-over screen
+   * belongs to the week the run was *played* under even if the week rolled over
+   * mid-run. Deriving it again from the clock at the end of the run would hand
+   * the player the new week's remainder under the old week's name.
+   */
+  private weekEndsAtMs = 0;
+
+  /**
+   * Which minute of the countdown the title screen is currently showing, so the
+   * row is refreshed on the frame the figure changes and on no other. -1 is
+   * "the screen has not been told anything yet", as `renameLockShown` is.
+   */
+  private weekTickShown = -1;
 
   // Per-run state. Reset in init() and in startRun(), never in the constructor —
   // Phaser reuses scene instances across restarts (AGENTS.md).
@@ -189,6 +232,13 @@ export class VigilScene extends Phaser.Scene {
     this.field.reset();
     this.bestScore = readBestScore();
 
+    // §14.8 — a scene that has just booted is on the title screen, which offers
+    // both modes and has no run behind it to have been played in either.
+    this.mode = RUN_MODE.WEEKLY;
+    this.runWeek = null;
+    this.weekEndsAtMs = 0;
+    this.weekTickShown = -1;
+
     // §15 — read here, with the best score, and never again: both are storage
     // reads, and the restart path is not allowed either of them.
     this.nameEdit = null;
@@ -233,6 +283,7 @@ export class VigilScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
 
     this.emitDisplayName();
+    this.emitWeek();
     this.emitRunState();
   }
 
@@ -263,6 +314,7 @@ export class VigilScene extends Phaser.Scene {
         this.beam.updateAim();
         this.lamp.update(this.cosmeticMs);
         this.syncRenameLock();
+        this.syncWeek();
         break;
 
       case RUN_STATE.PLAYING:
@@ -379,6 +431,13 @@ export class VigilScene extends Phaser.Scene {
         this.emitDisplayName();
         break;
 
+      case KEY_ACTION.START_FREE_PLAY:
+        // §14.8 — the mode choice, in one key press. It is a run-starting key
+        // like any other, so it goes through the same path a click does and
+        // nothing is confirmed, armed or asked.
+        this.onAnyInput(RUN_MODE.FREE_PLAY);
+        break;
+
       case KEY_ACTION.RUN_INPUT:
         this.onAnyInput();
         break;
@@ -401,6 +460,93 @@ export class VigilScene extends Phaser.Scene {
     if (renameLockDays(this.displayName, Date.now()) !== this.renameLockShown) {
       this.emitDisplayName();
     }
+  }
+
+  /**
+   * §14.2 — keeps the week row on the title screen true while it sits open.
+   *
+   * One clock reading and one comparison per title frame, and an event only on
+   * the frame the countdown's minute actually changes. When that minute is the
+   * last one of the week the next tick resolves a different week, so a title
+   * screen left open across a Monday 00:00 UTC+7 names the week that has begun
+   * rather than the one that ended under it. PLAYING never reaches this (C2.2).
+   */
+  private syncWeek(): void {
+    const nowMs = Date.now();
+
+    if (Math.floor(msRemainingInWeek(nowMs) / WEEK_COUNTDOWN_TICK_MS) !== this.weekTickShown) {
+      this.emitWeek(nowMs);
+    }
+  }
+
+  /**
+   * §14.2 and §14.8 — the week the title screen names: the one a run begun
+   * from this screen would be played under.
+   *
+   * Resolved through `weeklyRunAt()`, the same entry point `nextRun()` uses, so
+   * the week on the title screen and the week the run is configured from cannot
+   * be resolved two different ways. No network and nothing awaited:
+   * §14.2 is local arithmetic on the clock, which is what criterion 20 is about.
+   */
+  private emitWeek(nowMs = Date.now()): void {
+    const msRemaining = msRemainingInWeek(nowMs);
+    const week = weeklyRunAt(nowMs).week;
+
+    this.weekTickShown = Math.floor(msRemaining / WEEK_COUNTDOWN_TICK_MS);
+
+    if (week === null) {
+      return;
+    }
+
+    const payload: WeekPayload = {
+      key: week.key,
+      entryId: week.entry.id,
+      valueIndex: week.valueIndex,
+      msRemaining,
+    };
+    this.events.emit(VIGIL_EVENTS.WEEK_CHANGED, payload);
+  }
+
+  /**
+   * §14.2 — holds the week this run is played under for the whole run, from the
+   * run `startRun` already resolved.
+   *
+   * It takes the run rather than resolving one, because the week the screens
+   * name and the config the run is actually played at have to be the same
+   * resolution: the modifier named on the game-over screen is now the modifier
+   * the beam and the field were handed (`run.config`, GAM-44), and two separate
+   * `weeklyRunAt()` calls either side of a rollover could name one week and play
+   * another. That is the pillar 2 falsehood this signature exists to prevent.
+   *
+   * A clock change, a rollover or a laptop waking from sleep mid-run retunes
+   * nothing and renames nothing: the next run picks up the new week (criterion
+   * 26). Free Play resolves no week at all — §14.8 does not let it read the
+   * clock for one — so the row it would fill stays empty on both screens.
+   *
+   * @param run The run `nextRun()` returned for this mode.
+   * @param nowMs The same clock reading `run` was resolved from, so the
+   *   countdown ends the week the run is actually being played under.
+   */
+  private holdRunWeek(run: RunSetup, nowMs: number): void {
+    const week = run.week;
+
+    if (week === null) {
+      this.runWeek = null;
+      this.weekEndsAtMs = 0;
+      return;
+    }
+
+    this.runWeek = { key: week.key, entryId: week.entry.id, valueIndex: week.valueIndex };
+    this.weekEndsAtMs = nowMs + msRemainingInWeek(nowMs);
+  }
+
+  /** The run's week as the screens state it, with the countdown read now. */
+  private weekSnapshot(): WeekPayload | null {
+    const week = this.runWeek;
+
+    return week === null
+      ? null
+      : { ...week, msRemaining: Math.max(0, this.weekEndsAtMs - Date.now()) };
   }
 
   /**
@@ -485,7 +631,9 @@ export class VigilScene extends Phaser.Scene {
     }
 
     if (this.restartBuffered && this.restartLockoutLeft <= 0) {
-      this.startRun();
+      // §14.8 — `R` restarts the mode just played. No prompt, no choice, and
+      // nothing between this frame and the next playable one.
+      this.startRun(this.mode);
     }
   }
 
@@ -496,8 +644,13 @@ export class VigilScene extends Phaser.Scene {
    *
    * The pause case comes first because a suspended run is still PLAYING, and
    * the one thing the player can do to it is carry on.
+   *
+   * @param mode Which mode a run started from here is played in (§14.8). Every
+   *   key but `INPUT_FREE_PLAY_KEY`, and every click, begins the weekly vigil —
+   *   which is what the title prompt names. Read on the TITLE branch only: a
+   *   pause being lifted is the run it already belongs to carrying on.
    */
-  private onAnyInput(): void {
+  private onAnyInput(mode: RunMode = RUN_MODE.WEEKLY): void {
     // §15.3 — a click while the name editor is open does not start a run. The
     // player is mid-sentence; the two keys that end the editor are on screen,
     // and a run that began under their cursor would throw the draft away.
@@ -511,33 +664,47 @@ export class VigilScene extends Phaser.Scene {
     }
 
     if (this.runState === RUN_STATE.TITLE) {
-      this.startRun();
+      this.startRun(mode);
     }
   }
 
   /**
-   * §14.8 — the mode the next run is played in: the numbers to play at, the dice
+   * §14.8 — what the next run is played under: the numbers to play at, the dice
    * to roll with, and the week to name on screen.
    *
-   * Free Play for now, which is the shipped `src/config` exactly as committed, so
-   * nothing about how the game plays changes here. What changes is where the
-   * numbers come from: the beam and the crawler field are now *handed* a run's
-   * config instead of reading module-level constants, so the weekly mode has only
-   * to return `weeklyRunAt(Date.now())` from this one method. §14.2 requires that
-   * clock read to happen once, at the transition to PLAYING — `startRun` below is
-   * that moment, and it is the only caller.
+   * The two modes resolve through the one method, so there is exactly one place
+   * a run's tuning can come from. Free Play is the shipped `src/config` exactly
+   * as committed, unseeded and carrying no modifier; the weekly vigil is
+   * `weeklyRunAt()`, whose config is the §14.5 cell applied to that same base.
+   * The beam and the crawler field are *handed* whichever of the two came back
+   * rather than reading module-level constants, which is what lets the modifier
+   * reach gameplay without either of them knowing a mode exists.
    *
-   * The mode choice itself lives on the title screen, which is the weekly-screens
-   * task, not this one.
+   * §14.2 requires the clock read to happen once, at the transition to PLAYING:
+   * `startRun` below is that moment and the only caller, and it passes the
+   * reading in rather than letting this method take its own — the week named on
+   * screen and the config the run is played at must come from one instant.
    */
-  private nextRun(): RunSetup {
-    return freePlayRun();
+  private nextRun(mode: RunMode, nowMs: number): RunSetup {
+    return mode === RUN_MODE.FREE_PLAY ? freePlayRun() : weeklyRunAt(nowMs);
   }
 
-  /** §2.2 — entry to PLAYING, from TITLE and from GAME_OVER alike. */
-  private startRun(): void {
-    // Resolved once, here, and held by the field and the beam for the whole run.
-    const run = this.nextRun();
+  /**
+   * §2.2 — entry to PLAYING, from TITLE and from GAME_OVER alike.
+   *
+   * @param mode The mode to play in. From TITLE it is whichever key or click
+   *   got here; from GAME_OVER it is `this.mode`, the mode just played, which
+   *   is §14.8's rule that `R` never asks the question again.
+   */
+  private startRun(mode: RunMode): void {
+    this.mode = mode;
+
+    // Resolved once, here, from one clock reading, and then held for the whole
+    // run: by the field and the beam as tuning and dice, and by the scene as
+    // the week the two screens name (§14.2).
+    const nowMs = Date.now();
+    const run = this.nextRun(mode, nowMs);
+    this.holdRunWeek(run, nowMs);
 
     this.runState = RUN_STATE.PLAYING;
     this.elapsedSeconds = 0;
@@ -594,9 +761,14 @@ export class VigilScene extends Phaser.Scene {
       return;
     }
 
+    // The mode is named because criterion 29 asks for the restart to be
+    // measured in *both* modes: a weekly restart resolves a week on the way
+    // through and a Free Play one does not, so the two numbers are two
+    // measurements and the log has to say which is which.
     const verdict = RestartClock.withinBudget(measured) ? 'within' : 'OVER';
     console.info(
-      `[vigil] restart ${verdict} budget: ${measured.fromDeathMs.toFixed(1)} ms from death, ` +
+      `[vigil] ${this.mode} restart ${verdict} budget: ` +
+        `${measured.fromDeathMs.toFixed(1)} ms from death, ` +
         `${measured.fromPressMs.toFixed(1)} ms from keypress`,
     );
   }
@@ -630,6 +802,8 @@ export class VigilScene extends Phaser.Scene {
       banished: this.banished,
       elapsedSeconds: this.elapsedSeconds,
       bestScore: this.bestScore,
+      mode: this.mode,
+      week: this.weekSnapshot(),
     };
     this.events.emit(VIGIL_EVENTS.RUN_STATE_CHANGED, payload);
   }

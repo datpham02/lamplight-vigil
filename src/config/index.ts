@@ -486,11 +486,24 @@ export const INPUT_RESTART_KEY = 'R';
 /**
  * §15.4 — opens the name editor, on the title screen and nowhere else.
  *
- * The one key on the title screen that does not start a run, which is why the
- * title screen says so on the row above the prompt and the prompt says "any
- * *other* key" for exactly as long as this key is offered.
+ * One of the two keys on the title screen that does not begin a run the way
+ * every other key does, which is why the title screen names it on the row above
+ * the prompt and the prompt says "any *other* key".
  */
 export const INPUT_RENAME_KEY = 'N';
+
+/**
+ * §14.8 — begins a run in Free Play, on the title screen and nowhere else.
+ *
+ * The mode choice is one key press, not an armed setting the player then has to
+ * confirm: this key starts Free Play and every other key starts the weekly
+ * vigil, so neither mode is further away than the other and there is no title
+ * state to get out of step with the screen. GAM-16 condition C3.2 puts the
+ * choice on the title screen *only* — it is inert in PLAYING and in GAME_OVER,
+ * where `INPUT_RESTART_KEY` restarts the mode just played and nothing asks the
+ * question again (pillar 3: the restart path never grows a step).
+ */
+export const INPUT_FREE_PLAY_KEY = 'F';
 
 // ---------------------------------------------------------------------------
 // HUD — palette, typography and layout (`ui-designer`)
@@ -703,11 +716,35 @@ export const TITLE_CONTROLS_TEXT_LEFT_X = 498;
 export const TITLE_NAME_Y = 310;
 export const TITLE_NAME_SIZE = 18;
 
-export const TITLE_BEST_Y = 348;
+export const TITLE_BEST_Y = 344;
 export const TITLE_BEST_SIZE = 22;
-export const TITLE_PROMPT_Y = 402;
+
+/**
+ * `docs/design.md` §14.2 and §14.8 — the week a run started from this screen
+ * would be played under: its key, the one modifier it resolved to in plain
+ * words, and how long is left before it rolls over.
+ *
+ * Lamplight rather than hollow, and directly above the prompt: this is what
+ * pressing a key is about to begin, so it reads brighter than the alternative
+ * under it. Pillar 2 is the whole reason the row exists — "which week am I
+ * playing?" must never be a question the screen cannot answer (criterion 27),
+ * and a countdown rather than a clock time is what keeps the answer free of a
+ * time zone the player would have to convert from (§14.2).
+ */
+export const TITLE_WEEK_Y = 388;
+export const TITLE_WEEK_SIZE = 16;
+
+/**
+ * §14.8 — the other mode, and the key that begins it. Hollow, directly under
+ * the week it is the alternative to, because it is the quieter of the two
+ * offers: every key *except* this one begins the weekly vigil.
+ */
+export const TITLE_FREE_PLAY_Y = 416;
+export const TITLE_FREE_PLAY_SIZE = 16;
+
+export const TITLE_PROMPT_Y = 452;
 export const TITLE_PROMPT_SIZE = 24;
-export const TITLE_FOOTNOTE_Y = 466;
+export const TITLE_FOOTNOTE_Y = 494;
 export const TITLE_FOOTNOTE_SIZE = 14;
 
 // --- Name editor ------------------------------------------------------------
@@ -762,6 +799,20 @@ export const NAME_EDITOR_CARET_DIM_ALPHA = 0.25;
  */
 export const HUD_MONO_WIDTH_RATIO = 0.65;
 
+/**
+ * The same estimate for the proportional stack, averaged over a mixed-case
+ * sentence. Used to budget the width of a centred overlay row.
+ *
+ * A centred row is budgeted at the full frame width by the box model, so two
+ * rows can never be found overlapping sideways — which means the box model
+ * cannot catch the one horizontal failure these screens can actually have: a
+ * sentence long enough to run out past both margins. This ratio is what
+ * `src/hud/layout.test.ts` holds every overlay sentence to instead. The real
+ * measurement still happens in Phaser at runtime; this is the line a string has
+ * to stay the right side of to be worth shipping.
+ */
+export const HUD_TEXT_WIDTH_RATIO = 0.55;
+
 /** The rules, the standing notice, and the two keys that end the editor. */
 export const NAME_EDITOR_RULE_Y = 288;
 export const NAME_EDITOR_RULE_SIZE = 15;
@@ -815,10 +866,25 @@ export const GAME_OVER_SCORE_VALUE_Y = 86;
 export const GAME_OVER_SCORE_SIZE = 46;
 export const GAME_OVER_STATS_Y = 396;
 export const GAME_OVER_STATS_SIZE = 18;
-export const GAME_OVER_BEST_Y = 430;
+
+/**
+ * §14.8 and criterion 27 — the week the run that just ended was played under,
+ * in the same words the title screen used before it, and blank in Free Play,
+ * which resolves no week at all.
+ *
+ * Hollow, and below the figures rather than above them: the score is what the
+ * player came back to read, and the week is the context it was earned in. It is
+ * one row, not two, because every row below the lamp is competing with the
+ * restart prompt for the bottom of a 540-high frame, and `docs/design.md` §2.3
+ * will not give up the clear band around the lamp to make space.
+ */
+export const GAME_OVER_WEEK_Y = 427;
+export const GAME_OVER_WEEK_SIZE = 15;
+
+export const GAME_OVER_BEST_Y = 454;
 export const GAME_OVER_BEST_SIZE = 20;
-export const GAME_OVER_PROMPT_Y = 476;
-export const GAME_OVER_PROMPT_SIZE = 22;
+export const GAME_OVER_PROMPT_Y = 486;
+export const GAME_OVER_PROMPT_SIZE = 20;
 
 /**
  * A thin ring left where the crawler reached the lamp. It is drawn on the frame
@@ -1131,4 +1197,22 @@ export const WEEK_RESET_UTC_OFFSET_HOURS = 7;
  * decision needing `game-director` approval, exactly like a table entry.
  */
 export const WEEKLY_SEED_NAMESPACE = 'lamplight-vigil/weekly/1';
+
+/**
+ * §14.2 — how often the title screen's countdown to the reset is allowed to
+ * change, in milliseconds.
+ *
+ * The finest unit the countdown is ever written in is a minute, so re-reading
+ * the clock more often than that could only produce the string already on
+ * screen. The scene takes one clock reading per title frame and emits on the
+ * frame this bucket moves — the same shape as the §15.2 rename cooldown, and
+ * for the same reason: a screen that sits open across the moment a figure
+ * changes must say so on the frame it happens, and no frame of PLAYING may
+ * reach any of it (C2.2).
+ *
+ * It is also what re-resolves the week itself: when the countdown reaches zero
+ * the bucket moves, the week is resolved again, and the title screen names the
+ * week that has just begun rather than the one that ended under it.
+ */
+export const WEEK_COUNTDOWN_TICK_MS = 60 * MS_PER_SECOND;
 
