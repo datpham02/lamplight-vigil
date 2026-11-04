@@ -8,10 +8,7 @@
 
 import {
   CRAWLER_RADIUS,
-  CRAWLER_SPEED_BASE,
   CRAWLER_SPEED_JITTER,
-  CRAWLER_SPEED_MAX,
-  CRAWLER_SPEED_RAMP_PER_SECOND,
   LAMP_X,
   LAMP_Y,
   MAX_CRAWLERS,
@@ -21,13 +18,11 @@ import {
   SPAWN_EDGES,
   SPAWN_EDGE_WEIGHTS,
   SPAWN_FIRST_DELAY,
-  SPAWN_INTERVAL_DECAY_PER_SECOND,
-  SPAWN_INTERVAL_MIN,
-  SPAWN_INTERVAL_START,
   SPAWN_MIN_SEPARATION_RAD,
   SPAWN_PLACEMENT_ATTEMPTS,
   type SpawnEdge,
 } from '../config/index';
+import { BASE_TUNING, type SpawnCurveTuning, type SpeedCurveTuning } from '../config/tuning';
 import { Crawler } from './Crawler';
 
 /**
@@ -66,19 +61,32 @@ export interface CrawlerFieldStep {
   readonly lampHit: Point | null;
 }
 
+// Both curves take the config they read as an optional second argument, defaulted
+// to the shipped values (`docs/design.md` §14.9, item 1). The game never passes
+// one, so its behaviour is exactly what it was; `tools/throughput-sim.ts` passes a
+// weekly cell's config so that the sweep checks the *shipped* curve at a modified
+// constant rather than a second opinion about it (`docs/throughput-sim.md` §2).
+// The shape of neither formula changes — §9.3 of that document forbids it.
+
 /** §5.4 — linear speed ramp, capped. Jitter is applied per crawler afterwards. */
-export function rampedSpeed(elapsedSeconds: number): number {
+export function rampedSpeed(
+  elapsedSeconds: number,
+  config: SpeedCurveTuning = BASE_TUNING,
+): number {
   return Math.min(
-    CRAWLER_SPEED_MAX,
-    CRAWLER_SPEED_BASE * (1 + CRAWLER_SPEED_RAMP_PER_SECOND * elapsedSeconds),
+    config.CRAWLER_SPEED_MAX,
+    config.CRAWLER_SPEED_BASE * (1 + config.CRAWLER_SPEED_RAMP_PER_SECOND * elapsedSeconds),
   );
 }
 
 /** §5.4 — geometric decay of the spawn interval, floored. */
-export function spawnInterval(elapsedSeconds: number): number {
+export function spawnInterval(
+  elapsedSeconds: number,
+  config: SpawnCurveTuning = BASE_TUNING,
+): number {
   return Math.max(
-    SPAWN_INTERVAL_MIN,
-    SPAWN_INTERVAL_START * SPAWN_INTERVAL_DECAY_PER_SECOND ** elapsedSeconds,
+    config.SPAWN_INTERVAL_MIN,
+    config.SPAWN_INTERVAL_START * config.SPAWN_INTERVAL_DECAY_PER_SECOND ** elapsedSeconds,
   );
 }
 
