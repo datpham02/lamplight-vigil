@@ -22,6 +22,7 @@ import {
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
+import { freePlayRun, type RunSetup } from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import {
   canRename,
@@ -514,15 +515,37 @@ export class VigilScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * §14.8 — the mode the next run is played in: the numbers to play at, the dice
+   * to roll with, and the week to name on screen.
+   *
+   * Free Play for now, which is the shipped `src/config` exactly as committed, so
+   * nothing about how the game plays changes here. What changes is where the
+   * numbers come from: the beam and the crawler field are now *handed* a run's
+   * config instead of reading module-level constants, so the weekly mode has only
+   * to return `weeklyRunAt(Date.now())` from this one method. §14.2 requires that
+   * clock read to happen once, at the transition to PLAYING — `startRun` below is
+   * that moment, and it is the only caller.
+   *
+   * The mode choice itself lives on the title screen, which is the weekly-screens
+   * task, not this one.
+   */
+  private nextRun(): RunSetup {
+    return freePlayRun();
+  }
+
   /** §2.2 — entry to PLAYING, from TITLE and from GAME_OVER alike. */
   private startRun(): void {
+    // Resolved once, here, and held by the field and the beam for the whole run.
+    const run = this.nextRun();
+
     this.runState = RUN_STATE.PLAYING;
     this.elapsedSeconds = 0;
     this.banished = 0;
     this.score = 0;
     this.restartLockoutLeft = 0;
     this.restartBuffered = false;
-    this.field.reset();
+    this.field.reset(run);
 
     // §15 — belt and braces. Nothing can start a run with the editor open, so
     // this is never true; if it ever became true, the screen would be told on
@@ -545,8 +568,10 @@ export class VigilScene extends Phaser.Scene {
     this.feedback.reset();
 
     // Aim is seeded from the live pointer and a focus binding already held is
-    // disarmed, both before the first frame renders.
-    this.beam.reset(this.focusHeld);
+    // disarmed, both before the first frame renders. The run's config goes in
+    // with them, so the cone this run is drawn and frozen with is this run's —
+    // the same record the field got above, from the same resolution.
+    this.beam.reset(this.focusHeld, run.config);
 
     this.crawlerRenderer.draw(this.field.all);
     this.emitRunState();
