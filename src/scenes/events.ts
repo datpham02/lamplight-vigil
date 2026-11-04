@@ -11,6 +11,16 @@
 // Both are named here so the HUD can read them without importing either module's
 // implementation.
 
+import type { NameNotice } from './nameEdit';
+
+/**
+ * The name editor's vocabulary of complaints (`docs/design.md` §15.3), named
+ * here for the same reason the two state vocabularies below are: the HUD turns
+ * each one into a sentence and must be able to read the list without importing
+ * the editor's implementation.
+ */
+export type { NameNotice } from './nameEdit';
+
 // ---------------------------------------------------------------------------
 // Run state — docs/design.md §2
 // ---------------------------------------------------------------------------
@@ -79,6 +89,15 @@ export const VIGIL_EVENTS = {
   CRAWLER_BANISHED: 'crawler:banished',
   /** A crawler reached the lamp, ending the run. Payload: PointPayload. */
   LAMP_HIT: 'lamp:hit',
+  /**
+   * The display name, or the editing session on it, changed (`docs/design.md`
+   * §15). Payload: DisplayNamePayload.
+   *
+   * Fires on the title screen only, and on no frame of PLAYING or GAME_OVER:
+   * the name is captured once, before a run, and nothing about it is on the
+   * restart path.
+   */
+  DISPLAY_NAME_CHANGED: 'name:changed',
 } as const;
 
 /** Payload for VIGIL_EVENTS.BEAM_AIMED. */
@@ -148,4 +167,28 @@ export interface ScorePayload {
 export interface PointPayload {
   readonly x: number;
   readonly y: number;
+}
+
+/**
+ * Payload for VIGIL_EVENTS.DISPLAY_NAME_CHANGED — the whole name block on the
+ * title screen, in one reading (`docs/design.md` §15.2).
+ *
+ * The editing fields are carried here rather than kept by the HUD so that the
+ * scene, which owns the keyboard, and the screen, which owns the words, cannot
+ * disagree about whether a field is open.
+ */
+export interface DisplayNamePayload {
+  /** The committed name. What a score submitted now would be filed under. */
+  readonly name: string;
+  /**
+   * Whole days until this name may be changed again, 0 when it may be changed
+   * now. Pillar 2: a cooldown the game holds is a cooldown the screen states.
+   */
+  readonly renameLockDays: number;
+  /** Whether the name editor is open. True only ever in TITLE. */
+  readonly editing: boolean;
+  /** What is in the field, or null when the editor is closed. */
+  readonly draft: string | null;
+  /** The editor's complaint about the last keystroke, if it had one. */
+  readonly notice: NameNotice | null;
 }

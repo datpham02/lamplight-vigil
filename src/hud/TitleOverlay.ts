@@ -30,12 +30,15 @@ import {
   TITLE_HEADING_SIZE,
   TITLE_HEADING_TRACKING,
   TITLE_HEADING_Y,
+  TITLE_NAME_SIZE,
+  TITLE_NAME_Y,
   TITLE_PROMPT_SIZE,
   TITLE_PROMPT_Y,
   TITLE_SCRIM_ALPHA,
   TITLE_TAGLINE_SIZE,
   TITLE_TAGLINE_Y,
 } from '../config/index';
+import type { DisplayNamePayload } from '../scenes/events';
 import { formatCount } from './layout';
 import { scrim } from './scrim';
 import * as strings from './strings';
@@ -46,6 +49,20 @@ const CENTER_X = RENDER_WIDTH / 2;
 export class TitleOverlay {
   private readonly container: Phaser.GameObjects.Container;
   private readonly best: Phaser.GameObjects.Text;
+
+  /**
+   * §15.2 — the name a score from this device would be filed under, and the
+   * state of the weekly rename. Set from the name event rather than from
+   * `show()`, because it changes while the title screen is already up.
+   */
+  private readonly name: Phaser.GameObjects.Text;
+
+  /**
+   * §15.4 — the prompt, which has two readings. While the rename key is being
+   * offered it is the one key that does not start a run, and the prompt says
+   * "any other key" for exactly as long as that is true.
+   */
+  private readonly prompt: Phaser.GameObjects.Text;
 
   public constructor(scene: Phaser.Scene) {
     const children: Phaser.GameObjects.GameObject[] = [scrim(scene, TITLE_SCRIM_ALPHA)];
@@ -95,6 +112,19 @@ export class TitleOverlay {
       );
     });
 
+    // Mono, like every other figure on this screen: the name is a label on a
+    // board, and a proportional one would shift the row's centre every time a
+    // character is typed into it.
+    this.name = hudText(scene, {
+      x: CENTER_X,
+      y: TITLE_NAME_Y,
+      content: '',
+      size: TITLE_NAME_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'center',
+      mono: true,
+    });
+
     this.best = hudText(scene, {
       x: CENTER_X,
       y: TITLE_BEST_Y,
@@ -105,16 +135,19 @@ export class TitleOverlay {
       mono: true,
     });
 
+    this.prompt = hudText(scene, {
+      x: CENTER_X,
+      y: TITLE_PROMPT_Y,
+      content: strings.TITLE_PROMPT,
+      size: TITLE_PROMPT_SIZE,
+      color: HUD_TEXT_PRIMARY,
+      align: 'center',
+    });
+
     children.push(
+      this.name,
       this.best,
-      hudText(scene, {
-        x: CENTER_X,
-        y: TITLE_PROMPT_Y,
-        content: strings.TITLE_PROMPT,
-        size: TITLE_PROMPT_SIZE,
-        color: HUD_TEXT_PRIMARY,
-        align: 'center',
-      }),
+      this.prompt,
       hudText(scene, {
         x: CENTER_X,
         y: TITLE_FOOTNOTE_Y,
@@ -141,6 +174,21 @@ export class TitleOverlay {
       bestScore > 0 ? strings.bestScoreLine(formatCount(bestScore)) : strings.TITLE_NO_BEST,
     );
     this.container.setVisible(true);
+  }
+
+  /**
+   * §15.2 — the name row, and the prompt that depends on it.
+   *
+   * Called whether or not the title screen is up: the row is written when the
+   * name changes, so that the screen is already right on the frame it is shown
+   * rather than a frame later.
+   */
+  public showDisplayName(payload: DisplayNamePayload): void {
+    setTextIfChanged(this.name, strings.displayNameRow(payload.name, payload.renameLockDays));
+    setTextIfChanged(
+      this.prompt,
+      payload.renameLockDays > 0 ? strings.TITLE_PROMPT : strings.TITLE_PROMPT_WITH_RENAME,
+    );
   }
 
   public hide(): void {
