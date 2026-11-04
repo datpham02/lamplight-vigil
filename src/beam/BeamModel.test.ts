@@ -236,3 +236,45 @@ describe('beam geometry (design.md §3.2)', () => {
     assert.ok(focused.alpha > wide.alpha, 'it reads as concentration, not weakness');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Game feel — GAM-12
+// ---------------------------------------------------------------------------
+
+describe('the beam glow (GAM-12)', () => {
+  it('is a smaller, brighter source when focused', () => {
+    const wide = freshBeam();
+    const focused = freshBeam();
+    step(focused, BEAM_TRANSITION_TIME, true);
+
+    assert.ok(focused.glowAlpha > wide.glowAlpha, 'focusing concentrates the light');
+    assert.ok(focused.glowScale < wide.glowScale, 'into a tighter source');
+  });
+
+  it('moves continuously with the width, like every other derived quantity', () => {
+    const beam = freshBeam();
+    const wideAlpha = beam.glowAlpha;
+
+    step(beam, BEAM_TRANSITION_TIME / 2, true);
+    const midAlpha = beam.glowAlpha;
+    assert.ok(beam.width > 0 && beam.width < 1, 'mid-narrow');
+    assert.ok(midAlpha > wideAlpha, 'the glow is already brightening');
+
+    step(beam, BEAM_TRANSITION_TIME, true);
+    assert.ok(beam.glowAlpha > midAlpha, 'and keeps brightening to fully focused');
+  });
+
+  it('reads nothing the geometry test reads, so it cannot disagree with it', () => {
+    // The whole point: a glow is allowed to spill past the cone, and the cone
+    // edge is where freezing starts and stops (§3.2). Changing the glow must not
+    // move a single lit point.
+    const beam = freshBeam();
+    step(beam, BEAM_TRANSITION_TIME, true);
+
+    const onAxis = beam.containsPoint(LAMP_X + beam.range / 2, LAMP_Y);
+    const pastReach = beam.containsPoint(LAMP_X + beam.range + 1, LAMP_Y);
+
+    assert.equal(onAxis, true);
+    assert.equal(pastReach, false, 'reach is the range, not the glow');
+  });
+});

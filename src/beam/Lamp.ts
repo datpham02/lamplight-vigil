@@ -18,48 +18,21 @@ import {
   LAMP_X,
   LAMP_Y,
 } from '../config/index';
+import { ensureRadialGlowTexture, type RadialGlowSpec } from './glowTexture';
 
 /**
- * Bakes the soft halo into a canvas texture once, the first time a scene asks
- * for it. Regenerating a gradient every frame is the performance trap called out
- * in docs/concept.md §9, so this is deliberately a boot-time cost.
- *
- * Returns false if the renderer refused the texture, in which case the lamp
- * still draws its core and simply goes without a halo.
+ * The lamp's halo, baked once at boot. The beam's bloom is the same kind of
+ * texture from the same helper — see `glowTexture.ts` for why neither is ever
+ * regenerated per frame.
  */
-function ensureGlowTexture(scene: Phaser.Scene): boolean {
-  if (scene.textures.exists(LAMP_GLOW_TEXTURE_KEY)) {
-    return true;
-  }
-
-  const diameter = LAMP_GLOW_RADIUS * 2;
-  const texture = scene.textures.createCanvas(LAMP_GLOW_TEXTURE_KEY, diameter, diameter);
-  if (!texture) {
-    return false;
-  }
-
-  const ctx = texture.getContext();
-  const { red, green, blue } = Phaser.Display.Color.IntegerToColor(LAMP_GLOW_COLOR);
-  const rgba = (alpha: number): string => `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-
-  const gradient = ctx.createRadialGradient(
-    LAMP_GLOW_RADIUS,
-    LAMP_GLOW_RADIUS,
-    0,
-    LAMP_GLOW_RADIUS,
-    LAMP_GLOW_RADIUS,
-    LAMP_GLOW_RADIUS,
-  );
-  gradient.addColorStop(0, rgba(LAMP_GLOW_ALPHA));
-  gradient.addColorStop(LAMP_GLOW_MID_STOP, rgba(LAMP_GLOW_ALPHA * LAMP_GLOW_MID_ALPHA_SCALE));
-  gradient.addColorStop(1, rgba(0));
-
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, diameter, diameter);
-  texture.refresh();
-
-  return true;
-}
+const LAMP_GLOW: RadialGlowSpec = {
+  key: LAMP_GLOW_TEXTURE_KEY,
+  radius: LAMP_GLOW_RADIUS,
+  color: LAMP_GLOW_COLOR,
+  alpha: LAMP_GLOW_ALPHA,
+  midStop: LAMP_GLOW_MID_STOP,
+  midAlphaScale: LAMP_GLOW_MID_ALPHA_SCALE,
+};
 
 /**
  * The lamp at the centre of the hollow: a bright core and a soft halo.
@@ -71,7 +44,7 @@ export class Lamp {
   private readonly glow: Phaser.GameObjects.Image | null;
 
   public constructor(scene: Phaser.Scene) {
-    this.glow = ensureGlowTexture(scene)
+    this.glow = ensureRadialGlowTexture(scene, LAMP_GLOW)
       ? scene.add.image(LAMP_X, LAMP_Y, LAMP_GLOW_TEXTURE_KEY).setDepth(LAMP_GLOW_DEPTH)
       : null;
 

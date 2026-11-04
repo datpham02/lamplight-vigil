@@ -22,7 +22,9 @@ import {
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { Hud } from '../hud/index';
 import { readBestScore, writeBestScore } from './bestScore';
+import { RestartClock } from './restartClock';
 import { runScore } from './score';
+import { VigilFeedback } from './VigilFeedback';
 import {
   RUN_STATE,
   VIGIL_EVENTS,
@@ -49,8 +51,16 @@ export class VigilScene extends Phaser.Scene {
   private lamp!: Lamp;
   private beam!: Beam;
   private crawlerRenderer!: CrawlerRenderer;
+  private feedback!: VigilFeedback;
 
   private readonly field = new CrawlerField();
+
+  /**
+   * `docs/vision.md` §6 criterion 1 wants the restart measured, so the game
+   * measures it. Lives across restarts by design — it has to span the one it is
+   * timing — and is inert for a run started from TITLE.
+   */
+  private readonly restartClock = new RestartClock();
 
   private focusKey: Phaser.Input.Keyboard.Key | null = null;
   private restartKey: Phaser.Input.Keyboard.Key | null = null;
@@ -73,6 +83,13 @@ export class VigilScene extends Phaser.Scene {
    * must stop dead in GAME_OVER, where §2.3 freezes the world.
    */
   private cosmeticMs = 0;
+
+  /**
+   * This frame's timestamp from Phaser's clock. Held so endRun() and startRun(),
+   * which are reached from inside update(), can stamp the restart clock with the
+   * same frame time the loop is on rather than taking a second reading.
+   */
+  private frameTimeMs = 0;
 
   public constructor() {
     super(VigilScene.KEY);
@@ -107,10 +124,16 @@ export class VigilScene extends Phaser.Scene {
     this.lamp = new Lamp(this);
     this.crawlerRenderer = new CrawlerRenderer(this);
 
+    // Subscribes to the events emitted below; the scene never calls into it to
+    // make something happen. Its sound buffers are synthesised here too, once,
+    // for the same reason the textures are.
+    this.feedback = new VigilFeedback(this);
+
     // The readouts and the two overlays. The HUD subscribes itself to the
     // events below and is not referred to again from here: the scene owns the
     // run, not what the run looks like. It is constructed before the first
-    // emitRunState() so the title screen is up on the first rendered frame.
+    // emitRunState() so the title screen is up on the first rendered frame,
+    // and after the feedback layer so it sits above it when depths tie.
     new Hud(this);
 
     const keyboard = this.input.keyboard;
@@ -124,11 +147,18 @@ export class VigilScene extends Phaser.Scene {
     this.emitRunState();
   }
 
-  override update(_time: number, delta: number): void {
+  override update(time: number, delta: number): void {
     // §2.4 — every delta is clamped before any movement, timer, power or score
     // integration uses it. A backgrounded tab or a GC pause must cost the player
     // a slice of time, not the run.
     const deltaSeconds = Math.min(delta, DELTA_CLAMP_MS) / MS_PER_SECOND;
+
+    this.frameTimeMs = time;
+
+    // The first frame after a restart is the one the player can act on, so it is
+    // where the measurement stops. Before the state machine runs, so a death on
+    // this very frame cannot be mistaken for the end of the previous restart.
+    this.reportRestartIfMeasured(time);
 
     switch (this.runState) {
       case RUN_STATE.TITLE:
@@ -149,6 +179,11 @@ export class VigilScene extends Phaser.Scene {
         this.stepGameOver(deltaSeconds);
         break;
     }
+
+    // Feedback runs in every state, on its own clock. It moves nothing in the
+    // world and advances no rule — see VigilFeedback.update on why that is still
+    // inside §2.3's freeze.
+    this.feedback.update(deltaSeconds);
   }
 
   /** Whether either focus binding is down right now (§7). */
@@ -164,6 +199,11 @@ export class VigilScene extends Phaser.Scene {
     this.beam.update(deltaSeconds, this.focusHeld);
 
     const step = this.field.step(deltaSeconds, this.elapsedSeconds, this.beam.light);
+
+    for (const point of step.froze) {
+      const caught: PointPayload = { x: point.x, y: point.y };
+      this.events.emit(VIGIL_EVENTS.CRAWLER_FROZEN, caught);
+    }
 
     for (const point of step.banished) {
       this.banished += 1;
@@ -190,6 +230,7 @@ export class VigilScene extends Phaser.Scene {
     // press is enough; further presses change nothing.
     if (this.restartKey !== null && Phaser.Input.Keyboard.JustDown(this.restartKey)) {
       this.restartBuffered = true;
+      this.restartClock.markRestartPressed(this.frameTimeMs);
     }
 
     if (this.restartBuffered && this.restartLockoutLeft <= 0) {
@@ -218,6 +259,12 @@ export class VigilScene extends Phaser.Scene {
     this.restartBuffered = false;
     this.field.reset();
 
+    // Bursts are killed and any running camera shake is cancelled, so the first
+    // frame of the new run is not still shaking from the last one's death. No
+    // asset is loaded and no scene is restarted here — that is what keeps this
+    // path inside criterion 1's budget.
+    this.feedback.reset();
+
     // Aim is seeded from the live pointer and a focus binding already held is
     // disarmed, both before the first frame renders.
     this.beam.reset(this.focusHeld);
@@ -226,6 +273,27 @@ export class VigilScene extends Phaser.Scene {
     this.emitRunState();
     this.emitPower();
     this.emitScore();
+
+    this.restartClock.markRunStarted();
+  }
+
+  /**
+   * `docs/vision.md` §6 criterion 1. Prints the measured restart once per
+   * restart, in dev only: the number belongs to QA and to this task's evidence,
+   * not to the player, and pillar 2 would not thank us for a readout on screen
+   * that says nothing about the threat picture.
+   */
+  private reportRestartIfMeasured(nowMs: number): void {
+    const measured = this.restartClock.markFirstPlayableFrame(nowMs);
+    if (measured === null || !import.meta.env.DEV) {
+      return;
+    }
+
+    const verdict = RestartClock.withinBudget(measured) ? 'within' : 'OVER';
+    console.info(
+      `[vigil] restart ${verdict} budget: ${measured.fromDeathMs.toFixed(1)} ms from death, ` +
+        `${measured.fromPressMs.toFixed(1)} ms from keypress`,
+    );
   }
 
   /** §2.3 — a crawler touched the lamp. That, and only that, ends a run. */
@@ -233,6 +301,7 @@ export class VigilScene extends Phaser.Scene {
     this.runState = RUN_STATE.GAME_OVER;
     this.restartLockoutLeft = GAME_OVER_INPUT_LOCKOUT;
     this.restartBuffered = false;
+    this.restartClock.markDeath(this.frameTimeMs);
 
     // Only a press made *after* the death counts. Without this, a restart key
     // tapped during the run would still be flagged as newly-down on the first

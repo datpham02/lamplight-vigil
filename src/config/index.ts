@@ -27,6 +27,12 @@ export const MS_PER_SECOND = 1000;
 const DEGREES_PER_HALF_TURN = 180;
 
 /**
+ * A whole turn in radians. Named so the burn arc in `src/enemies` can sweep a
+ * full circle without writing a bare `Math.PI * 2`.
+ */
+export const FULL_TURN_RAD = Math.PI * 2;
+
+/**
  * `docs/design.md` states cone angles and bearings in degrees because that is how
  * a designer thinks about them; the maths needs radians. Converting here keeps
  * both the degree values from §10 and the radians gameplay reads inside
@@ -64,9 +70,13 @@ export const GAME_OVER_INPUT_LOCKOUT = 0.25;
  */
 export const AMBIENT_DEPTH = 5;
 export const BEAM_DEPTH = 10;
+/** The beam's bloom sits over the cone it brightens and under the lamp's halo. */
+export const BEAM_GLOW_DEPTH = 15;
 export const LAMP_GLOW_DEPTH = 20;
 export const LAMP_DEPTH = 30;
 export const CRAWLER_DEPTH = 40;
+/** Banish and lamp-hit bursts read over the crawlers they are about. */
+export const FEEDBACK_DEPTH = 45;
 
 // ---------------------------------------------------------------------------
 // §10.2 Lamp and arena
@@ -596,3 +606,235 @@ export const GAME_OVER_MARK_RADIUS = 26;
 export const GAME_OVER_MARK_LINE_WIDTH = 2;
 export const GAME_OVER_MARK_COLOR = HUD_FROST;
 export const GAME_OVER_MARK_ALPHA = 0.9;
+
+// ---------------------------------------------------------------------------
+// Game feel — GAM-12
+// ---------------------------------------------------------------------------
+//
+// `docs/design.md` §10 has no subsection for these yet: the feel pass is concept
+// §8 row 5 and it post-dates the tuning table, which §13 leaves open on the audio
+// set. They live here under the same rule as every other number in this file —
+// `docs/vision.md` §6 criterion 9 — so a designer can retune glow, shake,
+// duration and volume without opening a gameplay module. Proposing a §10.10 row
+// for each is `game-designer`'s call, not this task's.
+//
+// Nothing below changes a rule. Every value here is feedback on a mechanic that
+// already exists: no value in this section may alter what the beam freezes, what
+// it burns, when a run ends or what anything scores.
+
+// --- Beam glow -------------------------------------------------------------
+
+/**
+ * The cone's outer halo: slices wider and shorter or longer than the beam
+ * itself, drawn beneath the cone layers in the same Graphics so the glow costs
+ * no extra draw object and is rebuilt only when the width parameter moves.
+ *
+ * HARD CONSTRAINT: every `alphaScale` here must stay well below the smallest
+ * `alphaScale` in `BEAM_CONE_LAYERS`. The halo bleeds outside the cone, and the
+ * cone edge is exactly where freezing starts and stops (§3.2). A halo bright
+ * enough to be mistaken for the beam would be a pillar 2 failure — it would show
+ * the player light that holds nothing.
+ */
+export interface BeamHaloLayer {
+  /** Multiplier on the beam's current half-angle. Above 1 by definition. */
+  readonly angleScale: number;
+  /** Fraction of the beam's current reach this layer covers. */
+  readonly lengthScale: number;
+  /** Share of the beam's current fill alpha this layer contributes. */
+  readonly alphaScale: number;
+}
+
+export const BEAM_HALO_LAYERS: readonly BeamHaloLayer[] = [
+  { angleScale: 1.4, lengthScale: 0.86, alphaScale: 0.09 },
+  { angleScale: 1.16, lengthScale: 1.06, alphaScale: 0.13 },
+];
+
+/**
+ * The bloom at the beam's mouth: one radial-gradient texture, baked once at boot
+ * exactly like the lamp halo, whose alpha and scale interpolate on the width
+ * parameter. Focusing pulls the light into a smaller, brighter source; widening
+ * spreads it back out. Masks and alpha only — no shader, no Light2D
+ * (`docs/concept.md` §7).
+ */
+export const BEAM_GLOW_TEXTURE_KEY = 'beam-glow';
+export const BEAM_GLOW_TEXTURE_RADIUS = 110;
+export const BEAM_GLOW_COLOR = 0xffe6b8;
+export const BEAM_GLOW_MID_STOP = 0.3;
+export const BEAM_GLOW_MID_ALPHA_SCALE = 0.4;
+
+/** Alpha of the bloom when fully wide and when fully focused. */
+export const BEAM_GLOW_ALPHA_WIDE = 0.2;
+export const BEAM_GLOW_ALPHA_FOCUS = 0.46;
+
+/** Scale of the baked bloom when fully wide and when fully focused. */
+export const BEAM_GLOW_SCALE_WIDE = 1.0;
+export const BEAM_GLOW_SCALE_FOCUS = 0.6;
+
+// --- Freeze feedback -------------------------------------------------------
+
+/**
+ * A ring around a crawler for as long as the light holds it. Colour and
+ * body-tint already say "frozen"; the ring is the silhouette change that makes
+ * it unmistakable at a glance, and it appears and vanishes on exactly the frames
+ * the freeze does (§5.2 — no grace, no easing).
+ */
+export const CRAWLER_FROST_RING_SCALE = 1.55;
+export const CRAWLER_FROST_RING_WIDTH = 2;
+export const CRAWLER_FROST_RING_ALPHA = 0.85;
+
+/**
+ * The catch: a ring that snaps out and fades on the frame a crawler first
+ * becomes lit. Seconds. Purely cosmetic — it decays on its own clock and never
+ * gates, delays or extends the freeze itself.
+ */
+export const FREEZE_FLASH_TIME = 0.18;
+export const FREEZE_FLASH_SCALE_START = 1.6;
+export const FREEZE_FLASH_SCALE_END = 3.2;
+export const FREEZE_FLASH_WIDTH = 2;
+export const FREEZE_FLASH_ALPHA = 0.75;
+
+// --- Burn feedback ---------------------------------------------------------
+
+/**
+ * Burn dwell as an arc sweeping a full turn around the crawler. §5.2 requires
+ * partial dwell to be visible; the body tint shows that it is burning and the
+ * arc shows how far along it is, which is the part a player times a commitment
+ * against.
+ */
+export const BURN_ARC_RADIUS_SCALE = 1.9;
+export const BURN_ARC_WIDTH = 3;
+export const BURN_ARC_ALPHA = 0.9;
+/** Twelve o'clock, so a part-filled arc is read the same way every time. */
+export const BURN_ARC_START_DEG = -90;
+export const BURN_ARC_START_RAD = degToRad(BURN_ARC_START_DEG);
+
+/** The banish confirmation: a ring that expands off the crawler and fades. */
+export const BANISH_BURST_TIME = 0.3;
+export const BANISH_BURST_SCALE_START = 1.0;
+export const BANISH_BURST_SCALE_END = 4.2;
+export const BANISH_BURST_WIDTH = 3;
+export const BANISH_BURST_ALPHA = 0.9;
+export const BANISH_BURST_COLOR = 0xffb066;
+
+/** The lamp-hit confirmation, at the point of contact. */
+export const LAMP_HIT_BURST_TIME = 0.55;
+export const LAMP_HIT_BURST_SCALE_START = 1.0;
+export const LAMP_HIT_BURST_SCALE_END = 6.0;
+export const LAMP_HIT_BURST_WIDTH = 4;
+export const LAMP_HIT_BURST_ALPHA = 1.0;
+export const LAMP_HIT_BURST_COLOR = 0xff8c5a;
+
+/**
+ * Live bursts at once. A rail, not a balance lever: a burst past the cap is
+ * dropped rather than queued, for the same reason a spawn at `MAX_CRAWLERS` is
+ * (§5.3). Two per crawler at the cap is already far more than can co-exist.
+ */
+export const FEEDBACK_BURST_MAX = 32;
+
+// --- Screen shake ----------------------------------------------------------
+
+/**
+ * One shake, on a lamp hit, and nothing else. Phaser's intensity is a fraction
+ * of the viewport, so 0.012 is about 11 px of travel at 960 wide.
+ *
+ * It runs during GAME_OVER on purpose. §2.3 freezes the *world* — no crawler
+ * moves, no time accrues — and the camera is not the world: every crawler stays
+ * exactly where it died, which is what criterion 6 needs. The shake is also
+ * cancelled outright on restart, so a run never opens mid-shake.
+ */
+export const SHAKE_LAMP_HIT_DURATION_MS = 280;
+export const SHAKE_LAMP_HIT_INTENSITY = 0.012;
+
+// --- Sound -----------------------------------------------------------------
+//
+// Three cues, and they are the three `docs/design.md` §13 names as worth
+// confirming: the freeze, the burn, the lamp hit. Every one of them confirms
+// something already on screen — the frost ring, the banish burst, the game-over
+// state — so muting the tab hides nothing a player needs in order to act
+// (`docs/vision.md` pillar 2). No cue carries information of its own, and none
+// is the only evidence of anything.
+//
+// The waveforms are synthesised from these numbers at boot (src/scenes/
+// soundSynth.ts). There is no audio file in the repository.
+
+/** Scales every cue. Set to 0 to mute the game without touching gameplay. */
+export const AUDIO_MASTER_VOLUME = 0.5;
+
+/** One cue's waveform: a glide from start to end frequency under a decay. */
+export interface ToneSpec {
+  readonly durationSeconds: number;
+  readonly startFrequency: number;
+  readonly endFrequency: number;
+  /** 0 is a pure tone, 1 is pure noise. */
+  readonly noiseMix: number;
+  /** Seconds of fade-in. Non-zero, or the cue starts on a click. */
+  readonly attackSeconds: number;
+  /** Peak sample amplitude, before the cue's volume. */
+  readonly peakAmplitude: number;
+  /** Decay exponent. Higher is snappier. */
+  readonly decayExponent: number;
+}
+
+/** A crawler was caught by the light. Short, bright, rising. */
+export const SOUND_FREEZE: ToneSpec = {
+  durationSeconds: 0.09,
+  startFrequency: 1320,
+  endFrequency: 1760,
+  noiseMix: 0.12,
+  attackSeconds: 0.004,
+  peakAmplitude: 0.5,
+  decayExponent: 3.2,
+};
+export const SOUND_FREEZE_VOLUME = 0.35;
+
+/**
+ * A wide sweep can catch a dozen crawlers on one frame. Without a floor on the
+ * gap between freeze cues that is a dozen simultaneous blips, which reads as a
+ * glitch rather than a confirmation. Seconds.
+ */
+export const SOUND_FREEZE_MIN_INTERVAL = 0.07;
+
+/** A crawler finished its dwell and was banished. Falling, with a little body. */
+export const SOUND_BANISH: ToneSpec = {
+  durationSeconds: 0.26,
+  startFrequency: 620,
+  endFrequency: 160,
+  noiseMix: 0.35,
+  attackSeconds: 0.006,
+  peakAmplitude: 0.6,
+  decayExponent: 2.0,
+};
+export const SOUND_BANISH_VOLUME = 0.55;
+
+/** A crawler reached the lamp. Low and final. */
+export const SOUND_LAMP_HIT: ToneSpec = {
+  durationSeconds: 0.45,
+  startFrequency: 180,
+  endFrequency: 55,
+  noiseMix: 0.22,
+  attackSeconds: 0.004,
+  peakAmplitude: 0.9,
+  decayExponent: 1.5,
+};
+export const SOUND_LAMP_HIT_VOLUME = 0.8;
+
+// --- Restart ---------------------------------------------------------------
+
+/**
+ * `docs/vision.md` §6 criterion 1 and `docs/design.md` §12 criterion 8: one
+ * keypress from the game-over screen to the first playable frame, in at most
+ * this many seconds, measured from the moment of death.
+ *
+ * This is the budget the game is held to, not a tunable: it is here so that
+ * `restartClock.ts` and its test read the same number as the criterion, and so
+ * that raising `GAME_OVER_INPUT_LOCKOUT` past what the budget allows fails a
+ * test instead of shipping.
+ */
+export const RESTART_BUDGET_SECONDS = 1.0;
+
+/**
+ * Frames the restart path is allowed to spend after the lockout expires: one to
+ * notice the buffered press, one to present the rebuilt world. Used only by the
+ * worst-case arithmetic in `restartClock.ts`.
+ */
+export const RESTART_BUDGET_FRAMES = 2;

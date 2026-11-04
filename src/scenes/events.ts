@@ -58,6 +58,14 @@ export const VIGIL_EVENTS = {
   RUN_STATE_CHANGED: 'run:state-changed',
   /** Score and its inputs, every frame of PLAYING. Payload: ScorePayload. */
   SCORE_CHANGED: 'score:changed',
+  /**
+   * A crawler first entered the light. Payload: PointPayload.
+   *
+   * A transition, not a state: a crawler held in the beam fires this once, on
+   * the frame it was caught. Added by the feel pass so the catch has a hook of
+   * its own — the other two moments worth confirming already had one.
+   */
+  CRAWLER_FROZEN: 'crawler:frozen',
   /** A crawler completed its burn dwell. Payload: PointPayload. */
   CRAWLER_BANISHED: 'crawler:banished',
   /** A crawler reached the lamp, ending the run. Payload: PointPayload. */
@@ -118,7 +126,10 @@ export interface ScorePayload {
   readonly nextSpawnIn: number;
 }
 
-/** Payload for VIGIL_EVENTS.CRAWLER_BANISHED and VIGIL_EVENTS.LAMP_HIT. */
+/**
+ * Payload for VIGIL_EVENTS.CRAWLER_FROZEN, VIGIL_EVENTS.CRAWLER_BANISHED and
+ * VIGIL_EVENTS.LAMP_HIT.
+ */
 export interface PointPayload {
   readonly x: number;
   readonly y: number;

@@ -46,13 +46,21 @@ export interface Point {
   readonly y: number;
 }
 
-/** What happened to the field in one frame. */
+/**
+ * What happened to the field in one frame.
+ *
+ * All three are reported rather than just the two that score, because they are
+ * the three moments `docs/design.md` §13 names as worth confirming: the freeze,
+ * the burn and the lamp hit. Both arrays are reused between steps; read them
+ * before the next call rather than holding on to them.
+ */
 export interface CrawlerFieldStep {
   /**
-   * Where crawlers were banished this frame, for scoring and for the game-feel
-   * hooks in a later task. The array is reused between steps; read it before the
-   * next call rather than holding on to it.
+   * Where crawlers first entered the light this frame. Transitions only — a
+   * crawler held in the beam is reported once, on the frame it was caught.
    */
+  readonly froze: readonly Point[];
+  /** Where crawlers were banished this frame, for scoring and for the burn cue. */
   readonly banished: readonly Point[];
   /** Where a crawler touched the lamp, or null. A run ends on this and only this. */
   readonly lampHit: Point | null;
@@ -92,6 +100,7 @@ export class CrawlerField {
   private readonly crawlers: Crawler[] = [];
   private readonly random: () => number;
   private readonly banishedThisStep: Point[] = [];
+  private readonly frozeThisStep: Point[] = [];
 
   /** Seconds until the next spawn. Reset to SPAWN_FIRST_DELAY on every run. */
   private nextSpawnIn = SPAWN_FIRST_DELAY;
@@ -124,6 +133,7 @@ export class CrawlerField {
   public reset(): void {
     this.crawlers.length = 0;
     this.banishedThisStep.length = 0;
+    this.frozeThisStep.length = 0;
     this.nextSpawnIn = SPAWN_FIRST_DELAY;
   }
 
@@ -136,6 +146,7 @@ export class CrawlerField {
    */
   public step(deltaSeconds: number, elapsedSeconds: number, beam: BeamLight): CrawlerFieldStep {
     this.banishedThisStep.length = 0;
+    this.frozeThisStep.length = 0;
 
     // §6.1 — each spawn schedules the next one at interval(t) from itself. The
     // remainder carries so the spawner does not drift against the frame rate.
@@ -156,7 +167,16 @@ export class CrawlerField {
       }
 
       const lit = beam.containsPoint(crawler.x, crawler.y);
-      if (crawler.advance(deltaSeconds, speed, lit, beam.isBurning)) {
+      const banished = crawler.advance(deltaSeconds, speed, lit, beam.isBurning);
+
+      // Reported before the banish check: a crawler caught and burned away in
+      // the same frame is impossible at any sane BURN_DWELL_TIME, but the order
+      // means the catch is never silently swallowed if one ever is.
+      if (crawler.justFroze) {
+        this.frozeThisStep.push({ x: crawler.x, y: crawler.y });
+      }
+
+      if (banished) {
         this.banishedThisStep.push({ x: crawler.x, y: crawler.y });
         this.crawlers.splice(i, 1);
         continue;
@@ -167,7 +187,7 @@ export class CrawlerField {
       }
     }
 
-    return { banished: this.banishedThisStep, lampHit };
+    return { froze: this.frozeThisStep, banished: this.banishedThisStep, lampHit };
   }
 
   /**
