@@ -394,6 +394,34 @@ export const SCORE_PER_BANISH = 25;
 export const SCORE_STORAGE_KEY = 'lamplight-vigil.best-score';
 
 // ---------------------------------------------------------------------------
+// §15 Display name (`ui-designer`)
+// ---------------------------------------------------------------------------
+//
+// The name that will sit beside a score on the weekly board. It is captured on
+// the title screen and stored on the device; **nothing here reaches a network**,
+// and no provider is named or assumed (`docs/vision.md` §5b, D4 pending).
+//
+// The charset and the length bounds are the same rules the server will enforce
+// later. The client holds them as a convenience, so a name is never typed, sent
+// and then rejected — not as the check.
+
+/** §15.1 — shortest name the rules accept, after trimming. */
+export const DISPLAY_NAME_MIN_LENGTH = 3;
+
+/** §15.1 — longest name the rules accept, after trimming. */
+export const DISPLAY_NAME_MAX_LENGTH = 12;
+
+/** §15.1 — the generated default is this word, a space, and four digits. */
+export const DISPLAY_NAME_DEFAULT_PREFIX = 'Vigil';
+export const DISPLAY_NAME_DEFAULT_DIGITS = 4;
+
+/** §15.3 — a name may be changed once in this many days. Mirrors the server. */
+export const DISPLAY_NAME_RENAME_INTERVAL_DAYS = 7;
+
+/** §15.7 — changing this orphans every stored name. */
+export const DISPLAY_NAME_STORAGE_KEY = 'lamplight-vigil.display-name';
+
+// ---------------------------------------------------------------------------
 // §10.9 Input
 // ---------------------------------------------------------------------------
 //
@@ -409,6 +437,15 @@ export const INPUT_FOCUS_POINTER = true;
 
 /** §7 — restarts from GAME_OVER. Phaser key name. */
 export const INPUT_RESTART_KEY = 'R';
+
+/**
+ * §15.4 — opens the name editor, on the title screen and nowhere else.
+ *
+ * The one key on the title screen that does not start a run, which is why the
+ * title screen says so on the row above the prompt and the prompt says "any
+ * *other* key" for exactly as long as this key is offered.
+ */
+export const INPUT_RENAME_KEY = 'N';
 
 // ---------------------------------------------------------------------------
 // HUD — palette, typography and layout (`ui-designer`)
@@ -609,12 +646,84 @@ export const TITLE_CONTROLS_SIZE = 17;
 export const TITLE_CONTROLS_KEY_RIGHT_X = 462;
 export const TITLE_CONTROLS_TEXT_LEFT_X = 498;
 
+/**
+ * §15.2 — the name this lamp is kept under, and the key that changes it, on one
+ * row between the control table and the best score.
+ *
+ * One row, not two: the control table above it is what `docs/vision.md` §6
+ * criterion 5 is decided by, and a second row of identity copy pushing at it is
+ * exactly the dilution that criterion cannot afford. The name sits below the
+ * table and above the figure it will be printed beside.
+ */
+export const TITLE_NAME_Y = 310;
+export const TITLE_NAME_SIZE = 18;
+
 export const TITLE_BEST_Y = 348;
 export const TITLE_BEST_SIZE = 22;
 export const TITLE_PROMPT_Y = 402;
 export const TITLE_PROMPT_SIZE = 24;
 export const TITLE_FOOTNOTE_Y = 466;
 export const TITLE_FOOTNOTE_SIZE = 14;
+
+// --- Name editor ------------------------------------------------------------
+//
+// `docs/design.md` §15.3. A modal over the title screen, and the only screen in
+// the game that takes text. It is reachable from TITLE only: pillar 3 forbids a
+// name step between the lose state and the next playable frame, so there is no
+// path to this overlay from GAME_OVER at all.
+
+/**
+ * Heavier than the title scrim it covers. The title screen behind it is still
+ * legible as context — this is a panel over a screen, not a new screen — but
+ * nothing behind it competes with the field being typed into.
+ */
+export const NAME_EDITOR_SCRIM_ALPHA = 0.88;
+
+export const NAME_EDITOR_HEADING_Y = 150;
+export const NAME_EDITOR_HEADING_SIZE = 30;
+export const NAME_EDITOR_HEADING_TRACKING = 3;
+
+/**
+ * The field: a bounded box, so the player can see where the name ends and that
+ * the game is waiting for one. Text is mono and centred inside it, with the
+ * caret just past the last character.
+ */
+export const NAME_EDITOR_FIELD_Y = 206;
+export const NAME_EDITOR_FIELD_WIDTH = 420;
+export const NAME_EDITOR_FIELD_HEIGHT = 62;
+export const NAME_EDITOR_FIELD_PADDING_X = 16;
+export const NAME_EDITOR_FIELD_FILL_ALPHA = 0.55;
+export const NAME_EDITOR_FIELD_STROKE_WIDTH = 2;
+export const NAME_EDITOR_FIELD_STROKE_ALPHA = 0.8;
+export const NAME_EDITOR_FIELD_TEXT_Y = 222;
+export const NAME_EDITOR_FIELD_SIZE = 30;
+
+/**
+ * The caret pulses rather than blinking: it fades to a quarter and back, once a
+ * second and a bit. Under three flashes a second is the accessibility bound, and
+ * a caret that never fully disappears is easier to keep track of than one that
+ * does (`docs/design.md` §15.6).
+ */
+export const NAME_EDITOR_CARET_WIDTH = 3;
+export const NAME_EDITOR_CARET_GAP = 4;
+export const NAME_EDITOR_CARET_PULSE_MS = 600;
+export const NAME_EDITOR_CARET_DIM_ALPHA = 0.25;
+
+/**
+ * Advance of one character in the mono stack as a fraction of its size. Phaser
+ * measures the real thing at runtime; this is the budget `src/hud/layout.ts`
+ * proves the longest legal name against, and it is deliberately generous — the
+ * common mono faces sit near 0.6.
+ */
+export const HUD_MONO_WIDTH_RATIO = 0.65;
+
+/** The rules, the standing notice, and the two keys that end the editor. */
+export const NAME_EDITOR_RULE_Y = 288;
+export const NAME_EDITOR_RULE_SIZE = 15;
+export const NAME_EDITOR_NOTICE_Y = 318;
+export const NAME_EDITOR_NOTICE_SIZE = 17;
+export const NAME_EDITOR_PROMPT_Y = 366;
+export const NAME_EDITOR_PROMPT_SIZE = 20;
 
 // --- Pause overlay ----------------------------------------------------------
 //

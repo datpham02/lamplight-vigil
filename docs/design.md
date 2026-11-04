@@ -3,8 +3,10 @@
 Milestone: **Playable Vigil** ([`docs/concept.md`](./concept.md) §8, row 1).
 Owner: `game-designer`. Approval: `game-director`.
 
-§1–§13 are Playable Vigil. §14 is the first section of the **Online Vigil**
-milestone and carries its own approval.
+§1–§13 are Playable Vigil. §14 and §15 belong to the **Online Vigil** milestone
+and carry their own approval: §14 is `game-designer`'s (OV-1), §15 is
+`ui-designer`'s (OV-8). Each is scoped in its own preamble, and §15 amends the
+§7 input table in the two rows marked for it.
 
 **Where this sits.** [`docs/concept.md`](./concept.md) is the Board-approved concept
 and is the source of truth for *what the game is*. [`docs/vision.md`](./vision.md)
@@ -28,7 +30,8 @@ can tell a deliberate value from a typo.
 **In.** Run state machine, beam state machine, beam geometry, crawler movement and
 spawning, the power economy, freeze and burn resolution, scoring, and the full
 tuning table. §14 adds the Online Vigil weekly seed and the closed table of weekly
-modifiers; it is a later milestone and is scoped in its own preamble.
+modifiers, and §15 the display name captured on the title screen; both are a
+later milestone and are scoped in their own preambles.
 
 **Out, and deliberately so.**
 
@@ -64,9 +67,12 @@ the constructor (`AGENTS.md`).
 
 ### 2.1 TITLE
 
-Entered at boot. Shows the game name, the control summary, and the best score.
-No crawlers exist, no timer runs, no power drains. Any key or any click enters
-PLAYING.
+Entered at boot. Shows the game name, the control summary, and the best score —
+and, from the Online Vigil milestone, the display name this device plays under
+(§15.2). No crawlers exist, no timer runs, no power drains. Any key or any click
+enters PLAYING, with the single stated exception in §15.4: while the title
+screen is offering `INPUT_RENAME_KEY`, that key opens the name editor instead,
+and the prompt on screen says so for exactly as long as it is true.
 
 ### 2.2 PLAYING
 
@@ -513,7 +519,9 @@ The complete input surface. Nothing else is read.
 | Hold `INPUT_FOCUS_KEY` | PLAYING | Narrows the beam. Release widens it. Edge-triggered on entry to PLAYING (§2.2). |
 | Hold left mouse button | PLAYING | Identical to the above, including the edge trigger. |
 | `INPUT_RESTART_KEY` | GAME_OVER | Restarts. A press inside `GAME_OVER_INPUT_LOCKOUT` is buffered and fires when it expires (§2.3). |
-| Any key, any click | TITLE | Starts the run. |
+| `INPUT_RENAME_KEY` | TITLE, while a rename is available | Opens the name editor (§15.3, Online Vigil). Inert in every other state. |
+| Any key the editor acts on | TITLE, editor open | Goes into the name field, not to the run (§15.3). |
+| Any key, any click | TITLE | Starts the run. While `INPUT_RENAME_KEY` is being offered it is the one exception, and the prompt says so (§15.4). |
 | Any key, any click | PLAYING, suspended | Resumes. Runs through the §2.2 edge trigger (§2.5). |
 
 Every one of these is read from the game's own container, never from the window
@@ -1874,3 +1882,231 @@ across the whole document.
 | 28 | Free Play is unseeded, unranked and unmodified | Play Free Play on a week whose modifier is `clinging-dark ×1.30` and confirm a burn takes the shipped 0.40 s, no rank appears and no submission is attempted |
 | 29 | The restart path never grows a step | `R` from game-over restarts the mode just played, with no mode prompt, inside the §12 criterion 8 budget. Measure it in both modes |
 | 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. The §14.5 per-cell table lists the expected value for each — fifteen rows for fifteen cells, including the four that are expected to equal `plain` exactly |
+
+---
+
+## 15. The display name
+
+Milestone: **Online Vigil** (planned in GAM-16, approved by the Board
+2026-11-04). Owner: `ui-designer`. This is task OV-8.
+
+**D4 — provider and hosting — is still pending with the Board.** Nothing in this
+section calls a backend, names one, or assumes one exists. The name is captured
+on the device and stored on the device. The charset, the length bounds and the
+weekly rename interval are the rules a server will enforce later; they are held
+here as a **convenience**, so that a name is never typed, carried for a week and
+then refused, and never as the check.
+
+**What this section is for.** `docs/vision.md` §5b.1 item 4 puts an anonymous,
+display-name-only identity in scope, and criterion B7 says creating one requires
+no input beyond that name. GAM-16's condition **C3.2** then says where it may be
+asked for, and it is the load-bearing sentence in this whole section:
+
+> The display name is set **once, on the title screen**, defaults to a generated
+> name (for example `Vigil 7421`), and is editable from the title screen only.
+> `R` always bypasses it.
+
+Classic arcade name-on-death is the failure this forbids. It puts a menu between
+dying and playing again, which is pillar 3 — "one more sweep" — failing at the
+exact moment the pillar exists to protect.
+
+### 15.1 What a name may be
+
+The D2 rules, as approved:
+
+| Rule | Value |
+| --- | --- |
+| Length, after trimming | `DISPLAY_NAME_MIN_LENGTH` to `DISPLAY_NAME_MAX_LENGTH` — 3 to 12 |
+| Characters | `A-Z`, `a-z`, `0-9`, and the space |
+| Spaces | Single and internal. Leading and trailing spaces are trimmed; two in a row are refused |
+| Default | Generated: `DISPLAY_NAME_DEFAULT_PREFIX`, a space, and four digits — `Vigil 7421` |
+| Rename | Once per `DISPLAY_NAME_RENAME_INTERVAL_DAYS` — 7 |
+
+Case is preserved. A name is a label a player chose, and `LAMPKEEPER` is not what
+they typed.
+
+Trimming rather than refusing the outer spaces is deliberate: a space at either
+end is invisible, and an editor that refuses a keystroke the rules are about to
+discard anyway is an editor arguing with the player. A space in the *middle* is
+visible, so the second one in a row is refused at the keystroke, where the player
+can see which key did it.
+
+**The generated default is not a rename.** A player who has never chosen a name
+is not on a cooldown for a name they never picked. `renamedAt` is null until they
+commit one of their own.
+
+### 15.2 On the title screen
+
+One row, between the control table and the best score — `TITLE_NAME_Y`, mono,
+dim, centred. It has two readings and never a third:
+
+```
+PLAYING AS Vigil 7421 · PRESS N TO RENAME          (rename available)
+PLAYING AS Lampkeeper · RENAME AGAIN IN 3 DAYS     (rename on cooldown)
+```
+
+It is **one** row rather than a labelled block because the control table above it
+is what `docs/vision.md` §6 criterion 5 is decided by — every playtester
+describing the wide/focused trade-off after one run, unprompted — and a second
+row of identity copy pushing at that table is exactly the dilution criterion 5
+cannot afford. The name sits below the controls and directly above the figure it
+will one day be printed beside.
+
+The second half of the row is the state of the weekly rename, on screen at all
+times, because pillar 2 forbids the game holding a cooldown the screen never
+mentions. The count is rounded **up**: "0 days" beside a shut editor would be the
+screen contradicting itself. It is also kept **live** — the cooldown runs on the
+wall clock, so a title screen left open across the moment it expires says so on
+the frame it happens, rather than offering a key the row has just denied. That
+is one clock reading per title frame and an event on the frame the figure
+changes; no frame of PLAYING reaches it.
+
+### 15.3 The editor
+
+A panel over the title screen, reachable from TITLE and from nowhere else. Five
+things on it, and each one has a job:
+
+| Row | Says |
+| --- | --- |
+| Heading | `THE NAME ON YOUR LAMP` |
+| Field | The draft, mono, in a bounded box, with a caret just past the last character |
+| Rules | `3–12 CHARACTERS · LETTERS, NUMBERS AND SINGLE SPACES` — stated before they can be broken |
+| Notice | The standing `A NAME CAN BE CHANGED ONCE A WEEK`, or the one complaint the last keystroke earned |
+| Prompt | `ENTER SAVES · ESC KEEPS Vigil 7421` — both ways out, and what ESC goes back to |
+
+**Keys.** `ENTER` commits. `ESC` closes and keeps the committed name. `BACKSPACE`
+takes one character off the end. Any single printable character is typed into the
+field. `TAB` is deliberately *not* consumed, so focus can always leave the game —
+an editor you cannot tab out of is a keyboard trap. Every key the editor does act
+on has its default prevented, so a space cannot scroll the host page and a `/`
+cannot open the browser's quick-find (§2.6: the game never acts on the page
+around it).
+
+There is no caret movement and no selection. This is a twelve-character arcade
+name field, not a text editor, and arrow keys and `HOME` are an input surface
+with nothing to gain.
+
+**A click while the editor is open does nothing.** It does not start a run: the
+player is mid-sentence, and a run opening under their cursor would throw the
+draft away. The two keys that end the editor are on screen the whole time.
+
+**Refusals say what the rule is, not that a rule was broken.** `LETTERS, NUMBERS
+AND SPACES ONLY` tells a player what to type next; `INVALID NAME` tells them to
+guess. A refused keystroke never enters the field, and a refused `ENTER` keeps
+the draft on screen — a field that empties itself when it rejects you is a field
+you have to type into twice.
+
+**The weekly limit.** While a rename is on cooldown the key is not offered and
+the panel cannot be opened; the title row says when it can be. Committing the
+name you already had is not a rename and does not start the cooldown, so opening
+the panel to read the rules is never a risk.
+
+### 15.4 The one input this adds, and why pillar 1 still holds
+
+`INPUT_RENAME_KEY` (`N`) opens the editor, **in TITLE only, and only while a
+rename is available**. It is inert in PLAYING and in GAME_OVER. §7 is amended
+with the two rows this adds and nothing else.
+
+Pillar 1's test, as §7 puts it, is "whether an input does anything other than aim
+or shape the beam", and the pillar 1 QA check in `docs/vision.md` §3 exercises
+every input *during a run*. In a run this key does nothing at all: it reaches no
+beam, no crawler and no power, and there is no state in which it can be pressed
+and a crawler is on screen. The input surface of the game-as-played is unchanged.
+What the key does is open a screen the Board has already required to exist —
+C3.2 asks for a name that is editable from the title screen, which cannot be done
+without an affordance there.
+
+**It is also the one key on the title screen that does not start a run**, and
+that is stated rather than hidden. While the key is offered the prompt reads
+`PRESS ANY OTHER KEY OR CLICK TO BEGIN`; the moment it stops being offered —
+because a rename is on cooldown — every key starts a run again and the prompt
+goes back to `PRESS ANY KEY OR CLICK TO BEGIN`. The exception is on screen for
+exactly as long as the exception is real, which is what pillar 2 asks of every
+other string in this game.
+
+A pointer affordance was considered and rejected: the mouse is the aim device,
+and a mis-click on the title screen opening a modal is worse than a key that is
+named on the row above the prompt. Every click still begins a run.
+
+### 15.5 Pillar 3 — what is *not* on the restart path
+
+Condition C3.2 is held by construction, in three places, and QA can check each:
+
+1. **The scene can only open a session in TITLE.** The branch that opens the
+   editor is guarded on `RUN_STATE.TITLE`; there is no other caller.
+2. **The session is cleared on entry to PLAYING**, before the first frame of the
+   run, and the screen is told on the same frame.
+3. **The HUD takes the panel down on any state that is not TITLE**, whatever the
+   scene did. Two locks on a door the restart path never walks past.
+
+Nothing on the restart path reads storage either. The name is read **once**, in
+`init()`, beside the best score (§8), and never again — `R` to the first playable
+frame does no I/O, exactly as it did before this section existed.
+
+### 15.6 Accessibility
+
+These are requirements, not preferences, and each is checkable:
+
+- **Keyboard-operable end to end.** Opening, typing, committing and cancelling
+  are all keys. No pointer-only affordance exists, and no action needs a hold, a
+  drag or a double-press.
+- **No keyboard trap.** `ESC` always closes the editor, and `TAB` is never
+  consumed, so focus can leave the game while a draft is open. The draft is still
+  there when focus comes back.
+- **Nothing is timed.** The editor waits indefinitely. No keystroke expires and
+  nothing closes on its own.
+- **Colour is never the message.** A refusal is in ember *and* says a different
+  sentence than the standing notice it replaces. A player who cannot tell the two
+  colours apart reads the same information.
+- **The caret pulses, it does not flash.** It fades to `NAME_EDITOR_CARET_DIM_ALPHA`
+  and back over `NAME_EDITOR_CARET_PULSE_MS`, which is well under three flashes a
+  second, and it never fully disappears.
+- **Text is bounded and legible.** The smallest type on the panel is
+  `NAME_EDITOR_RULE_SIZE` (15 px in the fixed 960x540 render space, which FIT
+  scales up with everything else), on the lamplight-on-ink palette the rest of
+  the HUD already uses, with the §10 ink shadow under it.
+- **The name cannot overflow its field.** The field is proved wide enough for the
+  longest name the rules allow, caret included, in `src/hud/layout.test.ts`. A
+  player is never editing text they cannot see.
+
+### 15.7 What is stored
+
+One record, under `DISPLAY_NAME_STORAGE_KEY`:
+
+```json
+{ "name": "Lampkeeper", "renamedAt": 1762300000000 }
+```
+
+`renamedAt` is a clock reading, or null for a name the player never chose. There
+is no other personal field — `docs/vision.md` B7 — and no identifier of any kind
+beyond the name itself.
+
+Storage degrades the way §8's best score does, and for the same reason: a
+missing, unparseable or malformed record is treated as **no name yet** and a
+default is generated; a browser that refuses the write keeps the name for the
+session rather than breaking the game. A stored name that no longer passes §15.1
+is also treated as no name — the bounds are the server's and may tighten, and a
+player carrying a name the board would refuse should find that out now, from a
+fresh default, rather than later from a rejected score.
+
+A device clock wound **backwards** does not unlock a rename early; a clock wound
+forwards can. That is accepted: the server owns the real rule, and this is the
+convenience copy of it.
+
+### 15.8 Acceptance criteria — Online Vigil, OV-8
+
+Continuing the numbering in §12, §12.1 and §14.10.
+
+| # | Criterion | How to verify |
+| --- | --- | --- |
+| 31 | There is no name step between game over and the next playable frame | Die, press `R`, and confirm the next frame is playable: no panel, no field, no prompt. Repeat with a name never chosen, with one chosen, and with the rename on cooldown. This is condition C3.2 and it is the criterion this task exists to protect |
+| 32 | `R` is never the key that opens anything | From GAME_OVER, press `R`, `N`, and every letter: only `R` acts, and it restarts. `N` does nothing in GAME_OVER or in PLAYING |
+| 33 | The restart stays inside its budget | §12 criterion 8, re-measured on this build: `R` to first playable frame under 1.0 s. The name is read once at boot, so there is nothing new on this path to measure |
+| 34 | A new player has a usable name without doing anything | Clear storage, load the game: the title row names a generated `Vigil NNNN`, and the stored record carries it. No prompt, no step, no interruption |
+| 35 | The client enforces the same rules the server will | Unit tests over §15.1: 3–12 after trimming, letters, digits and single internal spaces only, double spaces and leading spaces refused, and every generated default passing its own rules |
+| 36 | A refusal says what to do next | Type `-`, type two spaces, commit `ab`, commit an empty field: each puts a different sentence on screen naming the rule, the draft survives, and the editor stays open |
+| 37 | The name is editable from the title screen, once a week | Rename, confirm the title row says when the next one is, confirm `N` no longer opens the panel, and confirm every key starts a run again. Committing an unchanged name does not start the cooldown |
+| 38 | The weekly limit is not hidden state | The cooldown is on the title row whenever it is running, and the limit itself is on the panel whenever it is open |
+| 39 | The editor is keyboard-operable and is not a trap | Open it, type, press `TAB`: focus leaves the game and the draft survives. Press `ESC` from any state: the panel closes and the committed name is unchanged |
+| 40 | Nothing here touches the network | Load with the network blocked and do all of the above. No request is made, and the repository names no provider (`docs/vision.md` B1) |
+| 41 | The panel never appears during play | Pillar 2 and B6's neighbour: the field is on the title screen only — never during PLAYING, never on game over, and never over the power, score or best-score readouts |

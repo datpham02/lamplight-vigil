@@ -23,12 +23,29 @@ import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
 import { readBestScore, writeBestScore } from './bestScore';
+import {
+  canRename,
+  commitDisplayName,
+  ensureDisplayName,
+  renameLockDays,
+  type DisplayNameRecord,
+} from './displayName';
+import {
+  KEY_ACTION,
+  backspaceName,
+  commitName,
+  keyAction,
+  openNameEdit,
+  typeIntoName,
+  type NameEditState,
+} from './nameEdit';
 import { RestartClock } from './restartClock';
 import { runScore } from './score';
 import { VigilFeedback } from './VigilFeedback';
 import {
   RUN_STATE,
   VIGIL_EVENTS,
+  type DisplayNamePayload,
   type PausePayload,
   type PointPayload,
   type PowerPayload,
@@ -66,6 +83,30 @@ export class VigilScene extends Phaser.Scene {
 
   private focusKey: Phaser.Input.Keyboard.Key | null = null;
   private restartKey: Phaser.Input.Keyboard.Key | null = null;
+
+  /**
+   * §15 — the name this device plays under, read once from storage, and the
+   * editing session on it when one is open.
+   *
+   * Both live on the scene because the scene owns the keyboard. The session is
+   * null in every state but TITLE and is cleared on the way into a run, which
+   * is the whole of condition C3.2 in `docs/vision.md` §3: there is no name
+   * step between the lose state and the next playable frame because there is
+   * no code path that can open one there.
+   */
+  private displayName: DisplayNameRecord = { name: '', renamedAt: null };
+  private nameEdit: NameEditState | null = null;
+
+  /**
+   * The rename cooldown the title row is currently stating, in days.
+   *
+   * Held so that the row can be kept true while the title screen sits open:
+   * the cooldown runs on the wall clock, and a screen that says "1 DAY" after
+   * the day has passed — beside a key that now works — is the pillar 2 failure
+   * this whole row exists to avoid. Checked on title frames only; -1 is "the
+   * screen has not been told anything yet".
+   */
+  private renameLockShown = -1;
 
   /**
    * The page this game is mounted on, or null when there is none — a scene
@@ -146,6 +187,12 @@ export class VigilScene extends Phaser.Scene {
     this.pointerPressOnGame = false;
     this.field.reset();
     this.bestScore = readBestScore();
+
+    // §15 — read here, with the best score, and never again: both are storage
+    // reads, and the restart path is not allowed either of them.
+    this.nameEdit = null;
+    this.renameLockShown = -1;
+    this.displayName = ensureDisplayName({});
   }
 
   create(): void {
@@ -180,10 +227,11 @@ export class VigilScene extends Phaser.Scene {
     if (keyboard !== null) {
       this.focusKey = keyboard.addKey(INPUT_FOCUS_KEY);
       this.restartKey = keyboard.addKey(INPUT_RESTART_KEY);
-      keyboard.on(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.onAnyInput, this);
+      keyboard.on(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.onKeyDown, this);
     }
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
 
+    this.emitDisplayName();
     this.emitRunState();
   }
 
@@ -213,6 +261,7 @@ export class VigilScene extends Phaser.Scene {
         this.cosmeticMs += deltaSeconds * MS_PER_SECOND;
         this.beam.updateAim();
         this.lamp.update(this.cosmeticMs);
+        this.syncRenameLock();
         break;
 
       case RUN_STATE.PLAYING:
@@ -296,6 +345,104 @@ export class VigilScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Every key the game hears, before anything decides what it means.
+   *
+   * There are exactly two branches above "any key starts the run", and both are
+   * TITLE-only: a key typed into an open name editor belongs to the field, and
+   * `INPUT_RENAME_KEY` opens that editor while a rename is available. Neither
+   * exists in PLAYING or in GAME_OVER, so the restart path is the one it was
+   * before §15 (`docs/vision.md` §3, condition C3.2).
+   */
+  private onKeyDown(event: KeyboardEvent): void {
+    const action = keyAction(
+      {
+        onTitle: this.runState === RUN_STATE.TITLE,
+        editing: this.nameEdit !== null,
+        renameAvailable: this.renameOffered,
+      },
+      event.key,
+    );
+
+    switch (action) {
+      case KEY_ACTION.EDIT_NAME:
+        if (this.nameEdit !== null) {
+          this.editName(this.nameEdit, event);
+        }
+        break;
+
+      case KEY_ACTION.OPEN_NAME_EDITOR:
+        // The game is taking this key, so the page does not also act on it.
+        event.preventDefault();
+        this.nameEdit = openNameEdit(this.displayName.name);
+        this.emitDisplayName();
+        break;
+
+      case KEY_ACTION.RUN_INPUT:
+        this.onAnyInput();
+        break;
+    }
+  }
+
+  /** §15.3 — whether the title screen is offering the rename key right now. */
+  private get renameOffered(): boolean {
+    return canRename(this.displayName, Date.now());
+  }
+
+  /**
+   * §15.2 — keeps the cooldown on the title row true as it runs down.
+   *
+   * One clock reading and one comparison per title frame, and an event only on
+   * the frame the figure actually changes — which is once a day at most, and
+   * once a week in practice. PLAYING never reaches this.
+   */
+  private syncRenameLock(): void {
+    if (renameLockDays(this.displayName, Date.now()) !== this.renameLockShown) {
+      this.emitDisplayName();
+    }
+  }
+
+  /**
+   * One keystroke into the open name editor (§15.3).
+   *
+   * Every key the editor acts on has its default prevented, because the game
+   * has consumed it: a space must not scroll the host page and a `/` must not
+   * open the browser's quick-find. Keys the editor does *not* act on — TAB
+   * above all — are left alone, so the player can always get focus back out of
+   * the game. An editor you cannot tab out of is a keyboard trap, and leaving
+   * it open while focus is elsewhere costs nothing: the draft is still there
+   * when they come back.
+   */
+  private editName(session: NameEditState, event: KeyboardEvent): void {
+    const key = event.key;
+
+    if (key === 'Escape') {
+      event.preventDefault();
+      this.nameEdit = null;
+    } else if (key === 'Enter') {
+      event.preventDefault();
+      const result = commitName(session);
+
+      if (result.name === null) {
+        this.nameEdit = result.state;
+      } else {
+        this.displayName = commitDisplayName(this.displayName, result.name, Date.now());
+        this.nameEdit = null;
+      }
+    } else if (key === 'Backspace') {
+      event.preventDefault();
+      this.nameEdit = backspaceName(session);
+    } else if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.nameEdit = typeIntoName(session, key);
+    } else {
+      // A modifier, a function key, TAB, a paste shortcut: not this field's.
+      return;
+    }
+
+    this.emitDisplayName();
+  }
+
   /** One frame of PLAYING. */
   private stepRun(deltaSeconds: number): void {
     this.elapsedSeconds += deltaSeconds;
@@ -350,6 +497,13 @@ export class VigilScene extends Phaser.Scene {
    * the one thing the player can do to it is carry on.
    */
   private onAnyInput(): void {
+    // §15.3 — a click while the name editor is open does not start a run. The
+    // player is mid-sentence; the two keys that end the editor are on screen,
+    // and a run that began under their cursor would throw the draft away.
+    if (this.nameEdit !== null) {
+      return;
+    }
+
     if (this.paused) {
       this.resumeFromPause();
       return;
@@ -369,6 +523,14 @@ export class VigilScene extends Phaser.Scene {
     this.restartLockoutLeft = 0;
     this.restartBuffered = false;
     this.field.reset();
+
+    // §15 — belt and braces. Nothing can start a run with the editor open, so
+    // this is never true; if it ever became true, the screen would be told on
+    // the same frame rather than left showing a field over a live run.
+    if (this.nameEdit !== null) {
+      this.nameEdit = null;
+      this.emitDisplayName();
+    }
 
     // §2.5 — a run never opens suspended. The key or click that got here is
     // itself the player being present, so a blur that happened while the
@@ -445,6 +607,25 @@ export class VigilScene extends Phaser.Scene {
       bestScore: this.bestScore,
     };
     this.events.emit(VIGIL_EVENTS.RUN_STATE_CHANGED, payload);
+  }
+
+  /**
+   * §15.2 — the whole name block, in one reading.
+   *
+   * Emitted when the name or the editing session changes, and never on a frame
+   * of PLAYING: this event is a title-screen event.
+   */
+  private emitDisplayName(): void {
+    const payload: DisplayNamePayload = {
+      name: this.displayName.name,
+      renameLockDays: renameLockDays(this.displayName, Date.now()),
+      editing: this.nameEdit !== null,
+      draft: this.nameEdit?.draft ?? null,
+      notice: this.nameEdit?.notice ?? null,
+    };
+
+    this.renameLockShown = payload.renameLockDays;
+    this.events.emit(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, payload);
   }
 
   private emitPause(): void {
