@@ -3,6 +3,9 @@
 Milestone: **Playable Vigil** ([`docs/concept.md`](./concept.md) §8, row 1).
 Owner: `game-designer`. Approval: `game-director`.
 
+§1–§13 are Playable Vigil. §14 is the first section of the **Online Vigil**
+milestone and carries its own approval.
+
 **Where this sits.** [`docs/concept.md`](./concept.md) is the Board-approved concept
 and is the source of truth for *what the game is*. [`docs/vision.md`](./vision.md)
 holds the pillars and the milestone success criteria. This document holds *how it
@@ -24,7 +27,8 @@ can tell a deliberate value from a typo.
 
 **In.** Run state machine, beam state machine, beam geometry, crawler movement and
 spawning, the power economy, freeze and burn resolution, scoring, and the full
-tuning table.
+tuning table. §14 adds the Online Vigil weekly seed and the closed table of weekly
+modifiers; it is a later milestone and is scoped in its own preamble.
 
 **Out, and deliberately so.**
 
@@ -1181,3 +1185,614 @@ simulation in [`docs/throughput-sim.md`](./throughput-sim.md) and need no build;
   then edited into §10 and §9.2 here.
 - **`MAX_CRAWLERS` final value** (§11.4) — may come down once QA reports the real
   peak concurrency.
+
+---
+
+## 14. Weekly seed and the modifier table
+
+Milestone: **Online Vigil** (planned in GAM-16, approved by the Board 2026-11-04).
+Owner: `game-designer`. **Approval: `game-director`, before OV-2 starts.** This is
+task OV-1.
+
+*Placed after §13 rather than before it because `src/config`, `src/scenes` and
+`src/enemies` all cite "§13" by number for the three sound cues. Renumbering an
+anchor to make a table of contents tidier is not worth a stale reference.*
+
+**D4 — provider and hosting — is still pending with the Board.** Nothing in this
+section calls a backend, names one, or assumes one exists. Everything here
+resolves on the device, from the device clock and the shipped `src/config`, with
+no network access of any kind. The seed is specified as a pure function precisely
+so that whatever D4 lands on can recompute the same answer later and verify a
+submission without this document changing.
+
+### 14.1 What a weekly modifier is, and what it is not
+
+GAM-16 condition **C1.1** is the rule this whole section exists to enforce:
+
+> A weekly modifier is a tuning value, never a mechanic. Every weekly variation is
+> a multiplier or override on an **existing named constant in `src/config`**,
+> declared in one closed table. No new entity, no new input, no new beam
+> behaviour, and nothing that removes, damages or repels a crawler the beam is not
+> touching.
+
+Four rules follow, and each one is checkable:
+
+1. **One entry is active per week.** Not two, not a stack. Two simultaneous
+   modifiers square the number of configurations the game can produce, and a week
+   that needs two sentences to describe is a pillar 2 failure on the title screen.
+2. **One entry touches exactly one constant.** The constant is named in the table
+   and is one of the seven in §14.5.
+3. **Every entry declares a finite set of values** — not a range the seed samples
+   from. This is the load-bearing decision in this section, and §14.6 explains it:
+   a finite table is a table CI can enumerate, so *every week the game will ever
+   generate* can be checked before any of them happens.
+4. **The table is data, in `src/config`.** It is not a module of gameplay code
+   with a switch statement in it. `AGENTS.md` puts every tuning value there, the
+   simulation already imports from there, and it keeps this table mine to edit
+   under the §10 rules rather than a programmer's.
+
+A proposal that cannot be written as a row of §14.5 is not a modifier. It is a
+feature, and it comes to me as its own task against pillar 1.
+
+### 14.2 The week key
+
+The **week key** is the ISO-8601 week date of the current UTC instant, formatted
+`YYYY-Www` — `2026-W45`. The week begins **Monday 00:00:00 UTC** and runs 7 days.
+ISO week 1 is the week containing the first Thursday of January, so a year has 52
+or 53 weeks and the first days of January can belong to the previous ISO year.
+
+```ts
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Midnight UTC on the Monday of the week containing `ms`. */
+function mondayUtc(ms: number): number {
+  const d = new Date(ms);
+  const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const dayIndex = (new Date(midnight).getUTCDay() + 6) % 7; // Monday = 0
+  return midnight - dayIndex * 86_400_000;
+}
+
+/** ISO-8601 week date, UTC. */
+function weekKey(ms: number): string {
+  const thursday = mondayUtc(ms) + 3 * 86_400_000;
+  const isoYear = new Date(thursday).getUTCFullYear();
+  const jan4 = Date.UTC(isoYear, 0, 4);
+  const firstThursday = mondayUtc(jan4) + 3 * 86_400_000;
+  const week = 1 + Math.round((thursday - firstThursday) / WEEK_MS);
+  return `${isoYear}-W${String(week).padStart(2, '0')}`;
+}
+
+/** Whole weeks since WEEKLY_EPOCH_UTC_MS, floored at 0. */
+function weekIndex(ms: number): number {
+  return Math.max(0, Math.floor((mondayUtc(ms) - WEEKLY_EPOCH_UTC_MS) / WEEK_MS));
+}
+```
+
+**`WEEKLY_EPOCH_UTC_MS = Date.UTC(2026, 0, 5)`** — Monday 5 January 2026, the
+Monday of `2026-W02`. It is in the past so that no shipped build ever computes a
+negative index, and it is a Monday so that `weekIndex` is exact rather than
+rounded.
+
+**Worked examples**, which are also acceptance vectors (criterion 18):
+
+| UTC instant | `weekKey` | `weekIndex` |
+| --- | --- | --- |
+| `2026-01-05T00:00:00Z` | `2026-W02` | 0 |
+| `2026-01-11T23:59:59Z` | `2026-W02` | 0 |
+| `2026-01-12T00:00:00Z` | `2026-W03` | 1 |
+| `2026-11-02T00:00:00Z` | `2026-W45` | 43 |
+| `2026-11-08T23:59:59Z` | `2026-W45` | 43 |
+| `2026-11-09T00:00:00Z` | `2026-W46` | 44 |
+| `2026-12-28T00:00:00Z` | `2026-W53` | 51 |
+| `2027-01-03T00:00:00Z` | `2026-W53` | 51 |
+| `2027-01-04T00:00:00Z` | `2027-W01` | 52 |
+
+2026 is a 53-week ISO year; the boundary rows above are in the table because that
+is the case an implementation gets wrong.
+
+**Why UTC and not local time.** A leaderboard is one global list. If the week key
+came from local time, two players in different zones would be on different weeks,
+with different modifiers, submitting to the same board — a fairness bug that only
+shows up at the edges of the week and is almost impossible to reproduce. The cost
+is that the reset lands at an awkward local hour for some players; that is a
+smaller problem than a board that silently mixes two configurations.
+
+**Pillar 2 — the week is not hidden state.** The title screen states the week key
+and the time remaining in it, in plain words, before a run starts. A player must
+never be unable to answer "which week am I playing?"
+
+**The key is resolved once per run, at the transition to `PLAYING`, and held for
+the whole run.** A clock change, a midnight rollover or a laptop waking from sleep
+mid-run never retunes a run in progress. §2.2 already resets per-run state in
+`init()`; the resolved week and modifier are per-run state and belong there.
+
+### 14.3 The seed
+
+Two functions, specified exactly, because a server implemented against D4 later
+must reproduce them byte for byte.
+
+**FNV-1a, 32-bit**, over the UTF-8 bytes of the string:
+
+```ts
+function fnv1a32(input: string): number {
+  let hash = 0x811c9dc5;                       // offset basis
+  for (const byte of new TextEncoder().encode(input)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;  // prime 16777619
+  }
+  return hash >>> 0;
+}
+```
+
+**mulberry32**, a 32-bit PRNG, used only to shuffle the schedule in §14.4:
+
+```ts
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1) >>> 0;
+    t = (t ^ (t + Math.imul(t ^ (t >>> 7), t | 61))) >>> 0;
+    return (t ^ (t >>> 14)) >>> 0;             // uint32, not a float
+  };
+}
+```
+
+**Conformance vectors** (criterion 19):
+
+| Input | `fnv1a32` | hex |
+| --- | --- | --- |
+| `""` | 2166136261 | `0x811c9dc5` |
+| `"a"` | 3826002220 | `0xe40c292c` |
+| `"lamplight-vigil"` | 2718592447 | `0xa20a6dbf` |
+| `"lamplight-vigil/weekly/1\|block\|0"` | 3239841354 | `0xc11c0e4a` |
+| `"lamplight-vigil/weekly/1\|2026-W45\|plain\|value"` | 3660224661 | `0xda2a9895` |
+
+**`WEEKLY_SEED_NAMESPACE = 'lamplight-vigil/weekly/1'`.** Every seed string is the
+namespace, then `|`-joined fields. The trailing `1` is a schedule version: bumping
+it reshuffles every week from that build onward, and it is the only sanctioned way
+to reshuffle the schedule deliberately. Bumping it is a design decision and needs
+`game-director` approval, like a table entry does.
+
+**Why not `crypto.subtle` or `Math.random`.** `Math.random` is unseedable and
+therefore cannot produce the same week twice, let alone the same week on two
+devices. `crypto.subtle.digest` is asynchronous, which would put a promise in the
+path between pressing a key and a run starting — pillar 3's restart budget is
+1.0 s and it is not spending any of it on a hash. FNV-1a is twenty lines, is
+synchronous, has no dependency, and this is not a security problem: nobody gains
+anything by predicting next week's modifier, and the table is published in this
+document anyway.
+
+### 14.4 Selection — the eight-week block schedule
+
+Entries are not drawn independently each week. The week's entry is its slot in a
+shuffled permutation of the whole table:
+
+```
+index  = weekIndex(now)
+block  = Math.floor(index / N)          // N = WEEKLY_MODIFIERS.length
+slot   = index % N
+order  = blockOrder(block)
+entry  = order[slot]
+value  = entry.values[fnv1a32(`${NS}|${key}|${entry.id}|value`) % entry.values.length]
+```
+
+where `blockOrder` is a Fisher–Yates shuffle of the table — **iterated in `id`
+order, so it does not depend on how the array happens to be written** — driven by
+`mulberry32(fnv1a32(`${NS}|block|${block}`))`:
+
+```ts
+function rawBlockOrder(block: number): readonly string[] {
+  const order = WEEKLY_MODIFIERS.map((m) => m.id).sort();
+  const next = mulberry32(fnv1a32(`${WEEKLY_SEED_NAMESPACE}|block|${block}`));
+  for (let i = order.length - 1; i >= 1; i -= 1) {
+    const j = next() % (i + 1);
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
+function blockOrder(block: number): readonly string[] {
+  const order = [...rawBlockOrder(block)];
+  if (block > 0) {
+    const previous = rawBlockOrder(block - 1);
+    // Swap the first two entries if this block would open on the entry the last
+    // one closed with. The swap never touches order[N - 1], so a block's closing
+    // entry is always rawBlockOrder(block)[N - 1] — which is exactly what the
+    // test above reads. See "Why a swap and not a rotation". Requires N >= 3.
+    if (order[0] === previous[previous.length - 1]) {
+      [order[0], order[1]] = [order[1], order[0]];
+    }
+  }
+  return order;
+}
+```
+
+**Why a swap and not a rotation.** The obvious fix-up — rotate the block left by
+one — is wrong, in a way that is worth recording because it is not visible by
+reading and does not show up in a short measurement.
+
+A left rotation moves `order[0]` to the end, so a rotated block's closing entry is
+`rawBlockOrder(b)[0]`, not `rawBlockOrder(b)[N - 1]`. The next block tests against
+`rawBlockOrder(b - 1)[N - 1]`, so whenever block `b - 1` rotated, the test reads
+the wrong element and fails two ways: it misses a genuine collision when
+`raw(b)[0] === raw(b - 1)[0]`, and it rotates needlessly when
+`raw(b)[0] === raw(b - 1)[N - 1]`, which can hand the opening slot to an entry that
+collides anyway. Testing `blockOrder(b - 1)` instead would be correct but would
+chain every block back to the epoch, costing property 3.
+
+A swap of the first two elements is the fix because it leaves `order[N - 1]`
+alone. The quantity the next block tests becomes rotation-independent, so the
+recursion never has to happen and `blockOrder` stays O(1) and stateless. The new
+opener `raw(b)[1]` cannot equal `raw(b)[0]` — a block is a permutation — so the
+collision is genuinely closed rather than moved.
+
+**Measured, over 99 999 block boundaries:** the rotation leaks **1838** repeated
+weeks (one boundary in 54); the swap leaks **0**. The swapped order is still a
+permutation and its closing entry still equals `rawBlockOrder(b)[N - 1]` at every
+one of the first 20 000 blocks.
+
+**This is why criterion 21 counts boundaries rather than sampling weeks.** The
+rotation's first leak is at block 128 — weeks 1023 and 1024, about nineteen years
+past the epoch — so a 520-week sample sees zero instances and reports the property
+as holding. It is not a rare bug that a longer sample would have caught; it is a
+bug that *this particular seed* hides for nineteen years, and bumping the schedule
+version in §14.3 re-rolls that dice and may put the first leak in week 20. A
+property guaranteed "by construction" must be tested as a property, not estimated
+from a sample.
+
+**Three properties this buys, none of which an independent weekly draw has:**
+
+1. **Every entry appears exactly once every `N` weeks.** Over 520 weeks each of
+   the eight entries comes up 65 times — exactly 12.5%, not approximately.
+   Independent draws gave 10.2% to 14.6% over the same span.
+2. **No two consecutive weeks share an entry.** Guaranteed by construction, not by
+   luck — the swap above is what makes that sentence true, and criterion 21 is
+   what keeps it true. Verified over 99 999 consecutive block boundaries: zero
+   repeats. An independent draw repeats 1 week in 8 and produced a run of four
+   identical weeks inside 520. "The twist did not change this week" is the single
+   worst thing a weekly feature can say, and it is now unrepresentable.
+3. **It is O(1) and stateless.** The answer depends on the clock and nothing else:
+   no stored history, no chain to replay from an epoch, no `localStorage`. A fresh
+   install and a two-year-old one resolve the same week identically.
+
+**Conformance vector** (criterion 22) — the first ten weeks from the Board's
+approval date, at the table in §14.5:
+
+| Week | `weekIndex` | Entry | Value |
+| --- | --- | --- | --- |
+| `2026-W45` | 43 | `clinging-dark` | ×1.30 |
+| `2026-W46` | 44 | `plain` | ×1.00 |
+| `2026-W47` | 45 | `one-axis` | `over-the-top` |
+| `2026-W48` | 46 | `restless-hollow` | ×1.10 |
+| `2026-W49` | 47 | `hungry-flame` | ×1.10 |
+| `2026-W50` | 48 | `narrow-lantern` | ×1.15 |
+| `2026-W51` | 49 | `clinging-dark` | ×1.15 |
+| `2026-W52` | 50 | `crowded-threshold` | ×1.06 |
+| `2026-W53` | 51 | `hungry-flame` | ×1.20 |
+| `2027-W01` | 52 | `one-axis` | `long-dark` |
+
+These ten weeks span blocks 5 and 6. **Re-derived under the corrected
+`blockOrder`, the vector is unchanged**: neither block collides with its
+predecessor, so neither swaps, and all ten rows resolve identically under the old
+and the new rule. Block 4 closes on `narrow-lantern` and block 5 opens on
+`thin-wick`; block 5 closes on `hungry-flame` and block 6 opens on
+`narrow-lantern`. The vector above is therefore correct against the code in this
+section, not inherited from the draft it replaces.
+
+**Editing the table changes history.** Adding, removing or renaming an entry
+changes `N` and every permutation after it, so past weeks resolve differently than
+they did when they were played. Two consequences, both rules:
+
+- **A submitted score records the resolved `id` and value it was played under.**
+  It is never recomputed from the week key after the fact. Which field carries it
+  is D4's business; *that* it is carried is this section's requirement, and OV-3
+  must not design a payload without it.
+- **Edits land at a block boundary.** An entry added mid-block would change the
+  remaining weeks of a block players are already inside. Ship a table edit so it
+  takes effect at `index % N === 0`, or accept and state that the current block is
+  reshuffled.
+
+### 14.5 The closed table
+
+Eight entries, fifteen cells. Every value in the "Values" column is the complete
+set a week can resolve to — there is nothing between them.
+
+`plain` is a ×1.00 multiplier rather than a special case, so that the schedule, the
+submission payload and the CI sweep have no "no modifier" branch to get wrong. A
+plain week is a cell like any other, and the sweep checks that it reproduces §11.1
+exactly.
+
+| # | `id` | On screen | Constant | Kind | Values | Resolved | Modelled first-timer run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `plain` | **A plain vigil.** The hollow as it is. | `SPAWN_INTERVAL_START` | multiplier | ×1.00 | 3.20 s | 79.1 s |
+| 2 | `restless-hollow` | **A restless hollow.** The crawl is quicker / slower this week. | `CRAWLER_SPEED_BASE` | multiplier | ×0.90, ×1.10 | 46.8, 57.2 px/s | 79.1 s (see §14.6) |
+| 3 | `clinging-dark` | **The dark clings.** Burning one takes longer. | `BURN_DWELL_TIME` | multiplier | ×1.15, ×1.30 | 0.46, 0.52 s | 68.7 s, 59.9 s |
+| 4 | `thin-wick` | **A thin wick.** The lamp recovers slowly. | `POWER_RECHARGE_RATE` | multiplier | ×0.90, ×0.85 | 19.8, 18.7 power/s | 64.7 s, 57.9 s |
+| 5 | `hungry-flame` | **A hungry flame.** Focusing costs more. | `POWER_DRAIN_RATE` | multiplier | ×1.10, ×1.20 | 28.6, 31.2 power/s | 66.0 s, 55.7 s |
+| 6 | `crowded-threshold` | **A crowded / quiet threshold.** They come sooner / later at first. | `SPAWN_INTERVAL_START` | multiplier | ×0.94, ×1.06 | 3.008, 3.392 s | 61.9 s, 95.7 s |
+| 7 | `narrow-lantern` | **A narrow / broad lantern.** The wide beam holds less / more of the field. | `BEAM_WIDE_ANGLE_DEG` | multiplier | ×0.85, ×1.15 | 59.5°, 80.5° | 73.8 s, 83.9 s |
+| 8 | `one-axis` | **The long dark / Over the top.** They come from the sides / from above and below. | `SPAWN_EDGE_WEIGHTS` | override | see below | — | 79.1 s (see §14.6) |
+
+`one-axis` overrides the whole record, and both values sum to 1 (B7):
+
+| Value | `top` | `bottom` | `left` | `right` |
+| --- | --- | --- | --- | --- |
+| `long-dark` | 0.05 | 0.05 | 0.45 | 0.45 |
+| `over-the-top` | 0.40 | 0.40 | 0.10 | 0.10 |
+
+**Modelled run lengths are from the shipped simulation**, one cell at a time at
+`dt = 0.01`, not from a second opinion about the model.
+
+**Practised-tier run length, all fifteen cells**, which criterion B9 also bounds
+and criterion 30 checks. Listed per cell rather than per displayed row, so the
+count matches the fifteen the sweep reports:
+
+| Cell | First-timer | Practised |
+| --- | --- | --- |
+| `plain ×1.00` | 79.1 s | 250.3 s |
+| `restless-hollow ×0.90` | 79.1 s | 250.3 s |
+| `restless-hollow ×1.10` | 79.1 s | 250.3 s |
+| `clinging-dark ×1.15` | 68.7 s | 231.4 s |
+| `clinging-dark ×1.30` | 59.9 s | 213.8 s |
+| `thin-wick ×0.90` | 64.7 s | 235.6 s |
+| `thin-wick ×0.85` | 57.9 s | 227.3 s |
+| `hungry-flame ×1.10` | 66.0 s | 237.0 s |
+| `hungry-flame ×1.20` | 55.7 s | 224.4 s |
+| `crowded-threshold ×0.94` | 61.9 s | 232.7 s |
+| `crowded-threshold ×1.06` | 95.7 s | 266.9 s |
+| `narrow-lantern ×0.85` | 73.8 s | 245.3 s |
+| `narrow-lantern ×1.15` | 83.9 s | 254.9 s |
+| `one-axis long-dark` | 79.1 s | 250.3 s |
+| `one-axis over-the-top` | 79.1 s | 250.3 s |
+
+Every one is over the 180 s floor, the lowest being `clinging-dark ×1.30` at
+213.8 s.
+
+**The four cells that read exactly as the base config are model-invisible, not
+unmeasured.** `restless-hollow` (both values) and `one-axis` (both values) change
+constants the run-length model does not integrate over — §14.6 says why, and for
+`one-axis` it is the right answer rather than a gap. Each was run through the sim
+individually and returned 79.08 s / 250.32 s / 332.42 s, identical to base to the
+reported precision. QA should expect those four rows to match `plain` exactly; a
+row that *differs* is the thing to report.
+
+**`hungry-flame ×1.20` at 55.7 s is the tightest cell in the table** — 0.7 s above
+the 55 s band floor. It is inside the band and correct by the band's own logic
+(§14.6), but it has the least room of any cell, so it is the **first to revisit
+once GAM-15 refits `B`**, ahead of `restless-hollow`, whose bound is a judgement
+rather than a measurement. If a refit moves it below 55 s, it comes back to
+`game-director` as a bound question, per §14.9 — it does not get nudged to ×1.18
+in place.
+
+**Where the derived constants are concerned.** `src/config` computes
+`BEAM_WIDE_HALF_ANGLE_RAD` from `BEAM_WIDE_ANGLE_DEG` at module load. A modifier
+on a constant other exports are derived from must be applied **before** the
+derivation, not after it, or the cone's geometry and its half-angle disagree —
+which is a freeze that happens outside the drawn cone, and a pillar 2 failure.
+`BEAM_WIDE_ANGLE_DEG` is the only entry in this table with that property today.
+
+**Floating point.** A modifier is a single IEEE-754 double multiply of a literal by
+a literal. That is bit-identical on every platform and in every browser, so two
+players on the same week are playing the same numbers, and `3.2 × 0.94` is whatever
+it is as long as it is the same everywhere.
+
+### 14.6 How each bound was derived
+
+Four different things bound this table, and knowing which one binds an entry is
+the difference between retuning it safely and guessing.
+
+#### The cell band: every cell lands in 55–110 s
+
+`docs/vision.md` §6 criterion 2 wants a median first-time run in **45–120 s**. This
+table is held to the tighter **55–110 s**, and the margin is not arbitrary.
+
+The model's one calibrated input is `B`, the backlog tolerance (§11.1), and GAM-15
+refits it. Measured sensitivity at the shipped config: `B = 3 → 79.1 s`,
+`B = 2.55 (−15%) → 73.8 s`, `B = 3.45 (+15%) → 83.9 s`. So a ±15% recalibration of
+`B` moves a run length by about ∓6.7%/+6.1% — run length is markedly *less*
+sensitive to `B` than linearly. Shrink the criterion window by that error and you
+get the band: a cell at 55 s survives a −15% refit at 51.3 s, still inside 45 s;
+a cell at 110 s survives a +15% refit at 116.7 s, still inside 120 s.
+
+**The band is the criterion window minus the model's own calibration error.** It is
+what lets GAM-15's refit land without retiring a published week.
+
+#### The asymptote invariant fences the whole easy side of the power economy
+
+This is the most useful thing the arithmetic turned up, and it is why entries 3, 4
+and 5 are one-directional.
+
+The §10.7 asymptote invariant is
+`SPAWN_INTERVAL_MIN < (BEAM_TRANSITION_TIME + BURN_DWELL_TIME) × (POWER_DRAIN_RATE + POWER_RECHARGE_RATE) / POWER_RECHARGE_RATE`,
+and at the shipped config it holds by 13.5%. Every way of making the power economy
+*kinder* pushes the right-hand side **down**, toward the floor interval:
+
+| Direction | Where the margin goes |
+| --- | --- |
+| `BURN_DWELL_TIME` ×0.95 | 13.5% → 9.1% |
+| `POWER_RECHARGE_RATE` ×1.08 | 13.5% → 8.9% |
+| `POWER_DRAIN_RATE` ×0.90 | 13.5% → 7.3% |
+| `SPAWN_INTERVAL_MIN` ×1.10 | 13.5% → 3.2% |
+
+This table requires **at least 10% of margin on B3 for any published cell** —
+enough that a later retune of the base config under §10 does not silently push a
+week that already shipped through the invariant. Every "easier" direction above
+breaches that before it is big enough for a player to notice, so:
+
+- `clinging-dark`, `thin-wick` and `hungry-flame` **only go the harder way.**
+- `SPAWN_INTERVAL_MIN` is not in the table at all.
+
+That is not a limitation to work around; it is the invariant doing exactly its job.
+It exists so that the game's hardest state still out-produces perfect play and
+every run ends. A weekly modifier is the last thing that should be allowed to
+quietly buy a good player an unbounded run — and the easy side of the power economy
+is precisely the direction that would.
+
+The easier weeks therefore come from somewhere else: a quieter opening
+(`crowded-threshold ×1.06`), a broader cone (`narrow-lantern ×1.15`), a slower crawl
+(`restless-hollow ×0.90`), roomier approaches (`one-axis long-dark`).
+
+#### B5 fences the quiet opening
+
+`crowded-threshold` cannot go far upward either, and the bound is not run length —
+it is **B5, `floorBindsAt ≤ 360 s`**. The floor binds at
+`ln(SPAWN_INTERVAL_START / SPAWN_INTERVAL_MIN) / 0.003506` seconds, so stretching
+the opening pushes the moment the game stops getting harder out past the horizon:
+
+| `SPAWN_INTERVAL_START` | `floorBindsAt` | B5 | First-timer run |
+| --- | --- | --- | --- |
+| ×1.06 → 3.392 | 348.4 s | pass (3.2% margin) | 95.7 s |
+| ×1.08 → 3.456 | 353.7 s | pass (1.8% margin) | 101.0 s |
+| ×1.15 → 3.680 | 371.6 s | **FAIL** | 118.9 s |
+
+×1.15 is still inside the 45–120 s window at 118.9 s and still inside
+`SPAWN_INTERVAL_START`'s own §10.7 safe range. It fails anyway, on an invariant two
+subsections away. This is the §10.5 / §10.7 joint-bound failure mode happening to a
+weekly modifier, and it is the clearest evidence that this table needs the CI sweep
+rather than a reviewer's judgement.
+
+Downward, the bound is the cell band: ×0.85 gives a 41.2 s first-timer run, outside
+the criterion outright. ×0.94 (61.9 s) is the published value, and it is a real
+change — three crawlers on screen at **29 s** instead of 47 s.
+
+#### What the model is blind to, and what bounds those entries instead
+
+The run-length model integrates arrivals against a flat kill capacity. Two entries
+— four cells — do not appear in that arithmetic at all, and the sweep will
+correctly report their run lengths as unchanged. All four were run through the sim
+individually to confirm that rather than assume it; they return the base figures
+exactly (§14.5). That is not a gap to paper over: for one entry it is the right
+answer, and for the other it is a bound stated by hand.
+
+- **`one-axis` — correctly invisible.** §11.1 lists `SPAWN_EDGE_WEIGHTS` among the
+  values that are "placement and grace, not pressure"; the weights appear nowhere
+  in the model because they genuinely change nothing about arrival rate or kill
+  capacity. Readability is also safe for a reason worth stating precisely: the
+  top/bottom approach is the short one (2.37 s at the capped, jittered speed), and
+  it **already exists at weight 0.2**. Re-weighting changes how often a crawler
+  takes an approach that is already in the game; it cannot create an approach
+  shorter than the shortest one, so B2 is untouched by construction.
+  *QA note:* with 0.8 of the weight on two edges, the §6.3 anti-clustering re-roll
+  budget is under more pressure. Watch for visibly stacked spawns on the heavy
+  axis and report the rate; the fix would be `SPAWN_PLACEMENT_ATTEMPTS`, which is a
+  §10 retune, not a code change.
+- **`restless-hollow` — invisible, and bounded by hand.** §3 of
+  `docs/throughput-sim.md` is explicit that speed shortens a crawler's *deadline*
+  rather than the player's capacity, and the model handles that through `B`, not
+  through capacity. So the sweep bounds this entry through B1 and B2 only:
+  `CRAWLER_SPEED_MAX` is untouched, so effective top speed stays 98.6 px/s and the
+  worst approach stays 2.37 s against the 1.5 s floor. What does move is
+  `speedCapsAt` — 198 s at base, **153.9 s at ×1.10** — i.e. the crawl reaches its
+  ceiling sooner, and §11.2's base-speed journey time goes from 4.5 s to 4.1 s.
+  Both are comfortably inside the readability bound. The ±10% bound on this entry
+  is therefore a judgement, deliberately set tight because the sweep is only
+  half-checking it, and it is the entry to revisit first once GAM-15 has refit `B`.
+- **`narrow-lantern` — made visible on purpose.** §11.1 anchors `B` on
+  `360 / BEAM_WIDE_ANGLE_DEG`, so a cone modifier genuinely does change the
+  backlog tolerance, and the sweep must say so. **Required coupling:** when the
+  sweep applies a `BEAM_WIDE_ANGLE_DEG` multiplier `m`, it scales every tier's
+  `backlogTolerance` by the same `m`. That is the one place the sweep is allowed to
+  touch a §4 tier parameter, it is why this entry's run lengths differ from the
+  base at all, and it keeps the most interesting modifier in the table honestly
+  checked instead of excluded.
+
+### 14.7 Constants deliberately **not** in the table
+
+Recorded so they are not reopened one task at a time.
+
+| Constant | Why not |
+| --- | --- |
+| `SPAWN_INTERVAL_DECAY_PER_SECOND` | §10.7 calls it the most sensitive value in the table: it sets all three capacity crossings at once and §11.1 must be re-derived before it moves. A week that changes the slope is a different game, not a twist |
+| `SPAWN_INTERVAL_MIN` | Owns how hard the game ever gets, and B3 leaves it 3.2% of margin at ×1.10 (§14.6) |
+| `CRAWLER_SPEED_MAX`, `CRAWLER_SPEED_JITTER` | The joint speed bound (§10.5) is the one readability margin §11.1 says is worth keeping. A candidate for a later entry once QA has footage; not for the first table |
+| `MAX_CRAWLERS` | A performance rail, not a balance lever (§5.3, §11.4). `docs/vision.md` §6 criterion 3 is measured at whatever it is set to, so a weekly value would make the frame-rate criterion unmeasurable |
+| `POWER_MAX`, `POWER_START`, `POWER_FOCUS_REARM` | The bar's scale and the §4.2 rearm mark are what the HUD is drawn against. Moving them weekly makes the power meter mean something different each week — pillar 2 |
+| `BEAM_FOCUS_RANGE`, `BEAM_WIDE_RANGE`, `BEAM_FOCUS_ANGLE_DEG` | §3.2 facts 1 and 2 (B8) are the geometry the whole width decision rests on: focused reaches the corners, wide does not reach the side edges. Not weekly |
+| `SCORE_PER_SECOND_SURVIVED`, `SCORE_PER_BANISH` | Scores from different weeks already sit on one board. Re-weighting the formula weekly would make the number itself mean something different each week, which is worse than a harder week |
+| `SCORE_STORAGE_KEY`, every `INPUT_*` | Changing a binding or a storage key weekly is self-evidently hostile. Listed only so no one has to ask |
+| Every colour, and everything under HUD | `ui-designer` owns the palette, and C1.2 forbids a cosmetic that touches the beam. A recoloured week is also the shape of "content you log in for" that C1.1 fences off |
+
+### 14.8 Free Play
+
+**Free Play is unseeded, unranked, and carries no modifier.** It runs the shipped
+`src/config` exactly as committed: it never reads the clock for a week key, never
+resolves an entry, never submits a score, and never shows a rank.
+
+- **Both modes keep the same local best score.** `SCORE_STORAGE_KEY` and the
+  degrade-gracefully behaviour in `src/scenes/bestScore.ts` are unchanged (C3.3).
+  A per-week local best is additive and is OV-3's call, not this table's.
+- **The game-over screen names the mode the run was played in**, because one
+  best-score number now spans two configurations and an unlabelled number is state
+  the screen is not showing. The screen work is OV-2's; the requirement is mine.
+- **The mode choice lives on the title screen only**, and `R` from game-over always
+  restarts the mode you were already in (GAM-16, pillar 3). The restart path never
+  grows a step, in either mode.
+- **A weekly run never waits on the clock.** The week key is a local arithmetic
+  function of `Date.now()`. There is no fetch, no time-sync and nothing to await
+  between the keypress and the first playable frame.
+
+### 14.9 The sweep — what `npm run sim` must check
+
+GAM-16 condition **C2.1** requires the simulation to iterate the whole declared
+table and exit non-zero on a breach. This is the highest-value thing in OV-1: it
+turns the fence from a promise into a build failure.
+
+**Invocation.** `npm run sim -- --modifiers` sweeps every cell; plain `npm run sim`
+keeps its current behaviour exactly, so GAM-17's gate is untouched.
+
+**Per cell, assert Group B of `docs/throughput-sim.md` §7, plus three more:**
+
+| # | Assertion |
+| --- | --- |
+| B1–B8 | Unchanged, per cell |
+| B9 | First-timer run in **[55, 110] s** (the §14.6 band, tighter than B9's own 45–120 s) and practised > 180 s |
+| W1 | The resolved value lies inside the constant's own §10 safe range. A week can never put the game somewhere a designer could not have tuned it by hand |
+| W2 | The entry names a constant on the §14.5 list, and the cell changes **that constant only** |
+| W3 | The `plain` cell reproduces the shipped config's Group A numbers exactly. If it does not, the override layer is lying about something |
+
+**Group A is not run per cell.** It reproduces §11.1 *at the shipped config* and is
+expected to fail under a modifier by design — `restless-hollow ×1.10` moves
+`speedCapsAt` from 198 s to 153.9 s, which is the modifier working, not a defect.
+Run Group A once, for the base config, exactly as now.
+
+**Two things this needs from the implementer, neither of which is a design
+decision:**
+
+1. **A config-override surface.** `tools/throughput-sim.ts` and
+   `src/enemies/CrawlerField.ts` read `src/config` through module-level imports, so
+   there is currently no way to evaluate the curve at anything but the shipped
+   values. Thread a config object through `spawnInterval`, `rampedSpeed` and the
+   model. **It must not change shipped behaviour at the base config** — the
+   existing `npm run sim` output and `CrawlerField.test.ts` are the regression.
+   How it is threaded is yours; that the sim imports the real curve functions
+   rather than re-implementing them (`docs/throughput-sim.md` §2) still holds.
+2. **The `backlogTolerance` coupling** for `BEAM_WIDE_ANGLE_DEG`, specified in
+   §14.6. It applies to that constant and no other.
+
+**Report the sweep's full output in the PR**, as §9 of `docs/throughput-sim.md`
+already requires for the base run. If a cell is outside tolerance, say so on the
+task rather than adjusting the cell — the bound is a design question and it is
+mine.
+
+### 14.10 Acceptance criteria — Online Vigil, OV-1
+
+Continuing the numbering in §12 and §12.1, so QA can cite a criterion by number
+across the whole document.
+
+| # | Criterion | How to verify |
+| --- | --- | --- |
+| 18 | The week key is a pure function of the UTC clock, per ISO-8601 | Unit test over the nine vectors in §14.2, including the `2026-W53` → `2027-W01` boundary. Freeze the clock; no other input |
+| 19 | The seed functions match the published vectors | Unit test over the five `fnv1a32` vectors in §14.3. A mismatch means a future server will disagree with the client |
+| 20 | A week resolves with no network access | Block the network at the browser, load the game, and confirm the title screen names the week and its modifier. No request is made and nothing is awaited |
+| 21 | Every entry appears exactly once per eight-week block, and no two consecutive weeks share one | **Two assertions, and the second must not be a sample.** (a) *Count:* iterate 520 weeks from `WEEKLY_EPOCH_UTC_MS`; each of the eight `id`s appears exactly 65 times and the longest run of one `id` is 1. (b) *Boundary, as a property:* for every block `b` in `1 .. 10_000`, assert `blockOrder(b)[0] !== blockOrder(b - 1)[N - 1]`, and assert `blockOrder(b)` is a permutation of all `N` ids. Sampling 520 weeks passes on a schedule whose first repeat is nineteen years out (§14.4), so (a) alone is not evidence for this criterion |
+| 22 | The schedule matches the published vector | The ten weeks in §14.4 resolve to exactly those entries and values |
+| 23 | Every resolved value is inside its constant's §10 safe range | Sweep assertion W1 |
+| 24 | The sweep fails loudly on a bad cell | Temporarily add a cell outside the band (for example `SPAWN_INTERVAL_START ×1.15`, which breaks B5), confirm `npm run sim -- --modifiers` exits non-zero and names the cell and the assertion, then revert it |
+| 25 | No modifier adds an entity, input or beam behaviour | Read the diff: the table is data in `src/config`, and the only constants it names are the seven in §14.5. Then run the pillar 1 QA check (`docs/vision.md` §3) on a modified week — exercise every input and confirm each only aims or shapes the beam |
+| 26 | The modifier is resolved once, at run start, and never changes mid-run | Start a weekly run, change the system clock across a Monday boundary mid-run, and confirm nothing retunes. The next run picks up the new week |
+| 27 | The active modifier is not hidden state | Its name and its effect are on the title screen before the run and on the game-over screen after it, in plain words, with the week key. A player who has never read this document can say what is different this week |
+| 28 | Free Play is unseeded, unranked and unmodified | Play Free Play on a week whose modifier is `clinging-dark ×1.30` and confirm a burn takes the shipped 0.40 s, no rank appears and no submission is attempted |
+| 29 | The restart path never grows a step | `R` from game-over restarts the mode just played, with no mode prompt, inside the §12 criterion 8 budget. Measure it in both modes |
+| 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. The §14.5 per-cell table lists the expected value for each — fifteen rows for fifteen cells, including the four that are expected to equal `plain` exactly |
