@@ -28,24 +28,20 @@ import { pathToFileURL } from 'node:url';
 
 import {
   BEAM_FOCUS_RANGE,
-  BEAM_TRANSITION_TIME,
   BEAM_WIDE_RANGE,
-  BURN_DWELL_TIME,
   CRAWLER_RADIUS,
-  CRAWLER_SPEED_JITTER,
-  CRAWLER_SPEED_MAX,
   LAMP_RADIUS,
   MAX_CRAWLERS,
-  POWER_DRAIN_RATE,
-  POWER_RECHARGE_RATE,
   RENDER_HEIGHT,
   SCORE_PER_BANISH,
   SCORE_PER_SECOND_SURVIVED,
+  SHIPPED_RUN_CONFIG,
   SPAWN_EDGES,
-  SPAWN_EDGE_WEIGHTS,
-  SPAWN_INTERVAL_MIN,
+  WEEKLY_MODIFIER_SAFE_RANGES,
+  type RunConfig,
 } from '../src/config/index';
 import { rampedSpeed, spawnInterval } from '../src/enemies/CrawlerField';
+import { changedRunConfigKeys, weeklyModifierCells, type ModifierCell } from '../src/weekly/index';
 
 // ---------------------------------------------------------------------------
 // §4 Skill tiers — the model's behavioural parameters, not game values
@@ -93,17 +89,23 @@ export const SKILL_TIERS: readonly SkillTier[] = [
 // §3 The model
 // ---------------------------------------------------------------------------
 
+// Every function below takes the config it reads rather than closing over the
+// module-level imports. That is the override surface `docs/design.md` §14.9 asks
+// for, and the default keeps §2's rule intact: the values still come from
+// `src/config` and are never re-declared here. At `SHIPPED_RUN_CONFIG` — which
+// is what plain `npm run sim` passes — the output is what it has always been.
+
 /** §5.4 — arrivals per second. */
-export function spawnRate(elapsedSeconds: number): number {
-  return 1 / spawnInterval(elapsedSeconds);
+export function spawnRate(elapsedSeconds: number, config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  return 1 / spawnInterval(elapsedSeconds, config);
 }
 
 /**
  * §11.3 — the sustainable focus duty: the share of a sustained run a player can
  * spend narrow without the bar ever emptying.
  */
-export function focusDuty(): number {
-  return POWER_RECHARGE_RATE / (POWER_DRAIN_RATE + POWER_RECHARGE_RATE);
+export function focusDuty(config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  return config.POWER_RECHARGE_RATE / (config.POWER_DRAIN_RATE + config.POWER_RECHARGE_RATE);
 }
 
 /**
@@ -111,13 +113,13 @@ export function focusDuty(): number {
  * zero travel, zero waste; no human reaches it. It is the right-hand side of the
  * §10.7 asymptote invariant.
  */
-export function shortestSustainableCycle(): number {
-  return (BEAM_TRANSITION_TIME + BURN_DWELL_TIME) / focusDuty();
+export function shortestSustainableCycle(config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  return (config.BEAM_TRANSITION_TIME + config.BURN_DWELL_TIME) / focusDuty(config);
 }
 
 /** §11.1 — drain seconds one banish costs this tier. */
-export function drainPerKill(tier: SkillTier): number {
-  return BEAM_TRANSITION_TIME + BURN_DWELL_TIME + tier.wasteFocused;
+export function drainPerKill(tier: SkillTier, config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  return config.BEAM_TRANSITION_TIME + config.BURN_DWELL_TIME + tier.wasteFocused;
 }
 
 /**
@@ -125,14 +127,14 @@ export function drainPerKill(tier: SkillTier): number {
  * power-limited cycle. Every tier is power-limited at the shipped config, which
  * is why POWER_RECHARGE_RATE is the lever GAM-17 moved.
  */
-export function cycleSeconds(tier: SkillTier): number {
-  const drain = drainPerKill(tier);
-  return Math.max(drain + tier.aimWide + BEAM_TRANSITION_TIME, drain / focusDuty());
+export function cycleSeconds(tier: SkillTier, config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  const drain = drainPerKill(tier, config);
+  return Math.max(drain + tier.aimWide + config.BEAM_TRANSITION_TIME, drain / focusDuty(config));
 }
 
 /** §11.1 — sustained banishes per second. Constant in `t`, deliberately (§3). */
-export function capacity(tier: SkillTier): number {
-  return 1 / cycleSeconds(tier);
+export function capacity(tier: SkillTier, config: RunConfig = SHIPPED_RUN_CONFIG): number {
+  return 1 / cycleSeconds(tier, config);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +161,12 @@ export interface SimulationOptions {
   readonly horizon: number;
   readonly step: number;
   readonly tiers: readonly SkillTier[];
+  /**
+   * §14.9 — the config to evaluate the curve at. Omitted is the shipped config,
+   * so every existing caller and plain `npm run sim` are unchanged; the weekly
+   * sweep is the only thing that passes anything else.
+   */
+  readonly config?: RunConfig;
 }
 
 export interface TierResult {
@@ -213,6 +221,8 @@ export interface TierRowCells {
 
 export interface SimulationResult {
   readonly options: SimulationOptions;
+  /** The config this run was evaluated at, resolved. Never undefined. */
+  readonly config: RunConfig;
   readonly landmarks: CurveLandmarks;
   readonly tiers: readonly TierResult[];
   readonly rows: readonly SeriesRow[];
@@ -242,14 +252,15 @@ interface TierState {
  */
 export function simulate(options: SimulationOptions): SimulationResult {
   const { dt, horizon, step, tiers } = options;
+  const config = options.config ?? SHIPPED_RUN_CONFIG;
   const steps = Math.round(horizon / dt);
   const rowEvery = Math.max(1, Math.round(step / dt));
   const probeStep = Math.round(PRESSURE_PROBE_SECONDS / dt);
 
   const states: TierState[] = tiers.map((tier) => ({
     tier,
-    capacity: capacity(tier),
-    cycleSeconds: cycleSeconds(tier),
+    capacity: capacity(tier, config),
+    cycleSeconds: cycleSeconds(tier, config),
     crossing: null,
     runLength: null,
     backlog: 0,
@@ -270,20 +281,20 @@ export function simulate(options: SimulationOptions): SimulationResult {
   let maxRateSlope = 0;
   let slopeFlatPastFloor = true;
   let rateFixedPastFloor = true;
-  const flooredRate = 1 / SPAWN_INTERVAL_MIN;
+  const flooredRate = 1 / config.SPAWN_INTERVAL_MIN;
 
   for (let i = 0; i <= steps; i += 1) {
     const t = i * dt;
-    const interval = spawnInterval(t);
+    const interval = spawnInterval(t, config);
     const rate = 1 / interval;
-    const speed = rampedSpeed(t);
+    const speed = rampedSpeed(t, config);
 
     // §5.2 landmarks. Exact equality is deliberate: both curves clamp with
     // Math.max/Math.min, so the floored value is bit-identical to the config's.
-    if (floorBindsAt === null && interval === SPAWN_INTERVAL_MIN) {
+    if (floorBindsAt === null && interval === config.SPAWN_INTERVAL_MIN) {
       floorBindsAt = t;
     }
-    if (speedCapsAt === null && speed === CRAWLER_SPEED_MAX) {
+    if (speedCapsAt === null && speed === config.CRAWLER_SPEED_MAX) {
       speedCapsAt = t;
     }
     if (scoreCrossoverAt === null && rate * SCORE_PER_BANISH >= SCORE_PER_SECOND_SURVIVED) {
@@ -293,7 +304,7 @@ export function simulate(options: SimulationOptions): SimulationResult {
     // B4 — the no-cliff bound. A one-sided difference over the integration step,
     // taken on the shipped curve rather than on its derivative: it is exactly
     // zero at and past the floor, where a centred difference would smear the kink.
-    const slope = (spawnRate(t + dt) - rate) / dt;
+    const slope = (spawnRate(t + dt, config) - rate) / dt;
     if (slope > maxRateSlope) {
       maxRateSlope = slope;
     }
@@ -370,7 +381,7 @@ export function simulate(options: SimulationOptions): SimulationResult {
   // summary is never blank — runLength stays null, which is what fails §7.
   for (const state of states) {
     if (state.runLength === null) {
-      const rate = spawnRate(horizon);
+      const rate = spawnRate(horizon, config);
       state.cumulativeSpawns = cumulativeSpawns;
       state.banished = cumulativeSpawns - state.backlog - rate * state.tier.meanAliveSeconds;
       state.score =
@@ -381,9 +392,10 @@ export function simulate(options: SimulationOptions): SimulationResult {
 
   return {
     options,
+    config,
     landmarks: {
-      duty: focusDuty(),
-      shortestSustainableCycle: shortestSustainableCycle(),
+      duty: focusDuty(config),
+      shortestSustainableCycle: shortestSustainableCycle(config),
       floorBindsAt,
       speedCapsAt,
       scoreCrossoverAt,
@@ -470,6 +482,18 @@ const FIRST_TIMER_RUN_WINDOW = { min: 45, max: 120 } as const;
 const PRACTISED_RUN_FLOOR = 180;
 const WEIGHT_SUM_EPSILON = 1e-9;
 
+/**
+ * `docs/design.md` §14.6 — the cell band, which is tighter than B9's own window
+ * and is the reason the table can survive GAM-15's refit of `B`.
+ *
+ * It is the criterion window minus the model's own calibration error: a ±15%
+ * refit of `B` moves a run length by about ∓6.7% / +6.1%, so a cell at 55 s is
+ * still inside 45 s after a −15% refit, and one at 110 s still inside 120 s
+ * after a +15%. A published week therefore does not have to be retired when the
+ * model is recalibrated.
+ */
+const CELL_RUN_BAND = { min: 55, max: 110 } as const;
+
 export interface Assertion {
   readonly name: string;
   readonly group: 'A' | 'B';
@@ -497,6 +521,9 @@ function show(value: number | null, decimals = 3): string {
   return value === null ? 'never' : value.toFixed(decimals);
 }
 
+const OVERRIDDEN = 'the tier table was overridden';
+const NOT_SELECTED = 'that tier was not selected';
+
 /**
  * Every §7 assertion, in order. `calibrated` is set when the tier table has been
  * overridden from the command line: Group A and B9 then describe a model the
@@ -505,10 +532,8 @@ function show(value: number | null, decimals = 3): string {
  */
 export function checkAcceptance(result: SimulationResult, calibrated = false): Assertion[] {
   const assertions: Assertion[] = [];
-  const { landmarks } = result;
+  const { config, landmarks } = result;
 
-  const OVERRIDDEN = 'the tier table was overridden';
-  const NOT_SELECTED = 'that tier was not selected';
   const overridden = calibrated ? OVERRIDDEN : null;
 
   // Group A's curve landmarks are properties of `src/config` alone, so they run
@@ -523,20 +548,11 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
   ): void => {
     assertions.push({ name, group: 'A', ok: skipped !== null || ok, expected, actual, skipped });
   };
-  const b = (
-    name: string,
-    ok: boolean,
-    expected: string,
-    actual: string,
-    skipped: string | null = null,
-  ): void => {
-    assertions.push({ name, group: 'B', ok: skipped !== null || ok, expected, actual, skipped });
-  };
 
   // --- Group A: reproduces design.md §11.1 at the shipped config ------------
 
   for (const { t, expected } of GROUP_A.rates) {
-    const actual = spawnRate(t);
+    const actual = spawnRate(t, config);
     a(
       `A rate(${t})`,
       within(actual, expected, RATE_TOLERANCE),
@@ -554,7 +570,7 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
   a(
     'A rate is exactly 1 / SPAWN_INTERVAL_MIN past the floor',
     landmarks.rateFixedPastFloor && landmarks.floorBindsAt !== null,
-    `exactly ${(1 / SPAWN_INTERVAL_MIN).toFixed(3)} /s`,
+    `exactly ${(1 / config.SPAWN_INTERVAL_MIN).toFixed(3)} /s`,
     landmarks.floorBindsAt === null ? 'the floor never binds' : String(landmarks.rateFixedPastFloor),
   );
   a(
@@ -639,7 +655,6 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
   }
 
   const firstTimer = result.tiers.find((tier) => tier.tier.key === 'first-timer');
-  const practised = result.tiers.find((tier) => tier.tier.key === 'practised');
   const withoutFirstTimer = firstTimer === undefined ? NOT_SELECTED : overridden;
 
   a(
@@ -659,7 +674,37 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
 
   // --- Group B: invariants that must hold at any config --------------------
 
-  const effectiveSpeed = CRAWLER_SPEED_MAX * (1 + CRAWLER_SPEED_JITTER);
+  assertions.push(...groupB(result, FIRST_TIMER_RUN_WINDOW, overridden));
+
+  return assertions;
+}
+
+/**
+ * §7 Group B — the invariants that must hold at *any* config, which is exactly
+ * why §14.9 runs this set per modifier cell and Group A only once.
+ *
+ * `runWindow` is B9's band: the shipping criterion's 45–120 s for the base run,
+ * and §14.6's tighter 55–110 s for a published cell.
+ */
+function groupB(
+  result: SimulationResult,
+  runWindow: { readonly min: number; readonly max: number },
+  overridden: string | null,
+): Assertion[] {
+  const assertions: Assertion[] = [];
+  const { config, landmarks } = result;
+
+  const b = (
+    name: string,
+    ok: boolean,
+    expected: string,
+    actual: string,
+    skipped: string | null = null,
+  ): void => {
+    assertions.push({ name, group: 'B', ok: skipped !== null || ok, expected, actual, skipped });
+  };
+
+  const effectiveSpeed = config.CRAWLER_SPEED_MAX * (1 + config.CRAWLER_SPEED_JITTER);
   b(
     'B1 joint speed bound',
     effectiveSpeed <= JOINT_SPEED_BOUND,
@@ -676,12 +721,12 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
     `${shortestApproachSeconds.toFixed(2)} s`,
   );
 
-  const ceiling = shortestSustainableCycle();
+  const ceiling = shortestSustainableCycle(config);
   b(
     'B3 asymptote invariant',
-    SPAWN_INTERVAL_MIN < ceiling,
+    config.SPAWN_INTERVAL_MIN < ceiling,
     `SPAWN_INTERVAL_MIN < ${ceiling.toFixed(3)} s`,
-    `${SPAWN_INTERVAL_MIN.toFixed(3)} s`,
+    `${config.SPAWN_INTERVAL_MIN.toFixed(3)} s`,
   );
 
   b(
@@ -713,7 +758,7 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
     );
   }
 
-  const weightSum = SPAWN_EDGES.reduce((sum, edge) => sum + SPAWN_EDGE_WEIGHTS[edge], 0);
+  const weightSum = SPAWN_EDGES.reduce((sum, edge) => sum + config.SPAWN_EDGE_WEIGHTS[edge], 0);
   b(
     'B7 spawn edge weights sum to 1',
     Math.abs(weightSum - 1) < WEIGHT_SUM_EPSILON,
@@ -728,21 +773,187 @@ export function checkAcceptance(result: SimulationResult, calibrated = false): A
     `${BEAM_FOCUS_RANGE} and ${BEAM_WIDE_RANGE}`,
   );
 
+  const firstTimer = result.tiers.find((tier) => tier.tier.key === 'first-timer');
+  const practised = result.tiers.find((tier) => tier.tier.key === 'practised');
+
   // B9 is the one Group B assertion with model error in it, and the one that a
   // refit can legitimately move. It is kept because it is the shipping criterion.
   b(
     'B9 run lengths meet the shipping criterion',
     firstTimer?.runLength != null &&
-      firstTimer.runLength >= FIRST_TIMER_RUN_WINDOW.min &&
-      firstTimer.runLength <= FIRST_TIMER_RUN_WINDOW.max &&
+      firstTimer.runLength >= runWindow.min &&
+      firstTimer.runLength <= runWindow.max &&
       practised?.runLength != null &&
       practised.runLength > PRACTISED_RUN_FLOOR,
-    `first-timer in [${FIRST_TIMER_RUN_WINDOW.min}, ${FIRST_TIMER_RUN_WINDOW.max}] s, practised > ${PRACTISED_RUN_FLOOR} s`,
+    `first-timer in [${runWindow.min}, ${runWindow.max}] s, practised > ${PRACTISED_RUN_FLOOR} s`,
     `${show(firstTimer?.runLength ?? null, 2)} s and ${show(practised?.runLength ?? null, 2)} s`,
     firstTimer === undefined || practised === undefined ? NOT_SELECTED : overridden,
   );
 
   return assertions;
+}
+
+// ---------------------------------------------------------------------------
+// §14.9 The weekly modifier sweep
+// ---------------------------------------------------------------------------
+//
+// GAM-16 condition C2.1 is what this exists for, and it is worth stating plainly:
+// a pillar held by a promise is held by nobody. The table in §14.5 declares
+// finite value sets rather than ranges precisely so that CI can enumerate every
+// week the game will ever generate and check it before any of them happens.
+//
+// Group A is deliberately **not** run per cell. It reproduces §11.1 at the
+// shipped config and is expected to fail under a modifier by design —
+// `restless-hollow x1.10` moves speedCapsAt from 198 s to 153.9 s, which is the
+// modifier working, not a defect.
+
+/** §10.7 — the room B3 has, as a fraction of `SPAWN_INTERVAL_MIN`. */
+export function asymptoteMargin(result: SimulationResult): number {
+  const floor = result.config.SPAWN_INTERVAL_MIN;
+  return (result.landmarks.shortestSustainableCycle - floor) / floor;
+}
+
+/**
+ * §14.6 — "This table requires at least 10% of margin on B3 for any published
+ * cell", so that a later retune of the base config under §10 cannot silently
+ * push a week that already shipped through the invariant. It is why
+ * `clinging-dark`, `thin-wick` and `hungry-flame` only go the harder way, and
+ * why `SPAWN_INTERVAL_MIN` is not in the table at all.
+ */
+const CELL_B3_MARGIN_FLOOR = 0.1;
+
+export interface CellResult {
+  readonly cell: ModifierCell;
+  readonly result: SimulationResult;
+  readonly assertions: readonly Assertion[];
+}
+
+/**
+ * §14.6 — the required `backlogTolerance` coupling, and the one place the sweep
+ * is allowed to touch a §4 tier parameter.
+ *
+ * §11.1 anchors the model's calibrated input `B` on `360 / BEAM_WIDE_ANGLE_DEG`,
+ * so a cone modifier genuinely does change the backlog a player can hold, and
+ * the sweep must say so. It applies to that constant and no other: it is what
+ * makes `narrow-lantern` the one entry whose run lengths differ from the base,
+ * which is honest checking rather than exclusion.
+ */
+function tiersForCell(cell: ModifierCell, tiers: readonly SkillTier[]): readonly SkillTier[] {
+  if (cell.entry.constant !== 'BEAM_WIDE_ANGLE_DEG' || cell.value.kind !== 'multiplier') {
+    return tiers;
+  }
+
+  const coupling = cell.value.multiplier;
+  return tiers.map((tier) => ({
+    ...tier,
+    backlogTolerance: tier.backlogTolerance * coupling,
+  }));
+}
+
+/** The §11.1 numbers two runs must agree on for W3 to hold. */
+function groupANumbers(result: SimulationResult): string {
+  return JSON.stringify([
+    result.landmarks,
+    result.tiers.map((tier) => [
+      tier.tier.key,
+      tier.capacity,
+      tier.crossing,
+      tier.runLength,
+      tier.banished,
+      tier.score,
+      tier.peakConcurrency,
+      tier.backlogAtProbe,
+      tier.concurrencyThresholdAt,
+    ]),
+  ]);
+}
+
+/**
+ * §14.9 — one cell's assertions: Group B per cell with the §14.6 band on B9,
+ * then W1, W2 and (for `plain` alone) W3.
+ */
+export function checkCell(
+  cell: ModifierCell,
+  result: SimulationResult,
+  base: SimulationResult,
+): Assertion[] {
+  const assertions = groupB(result, CELL_RUN_BAND, null);
+  const w = (name: string, ok: boolean, expected: string, actual: string): void => {
+    assertions.push({ name, group: 'B', ok, expected, actual, skipped: null });
+  };
+
+  // W1 — the resolved value lies inside the constant's own §10 safe range. A
+  // week can never put the game somewhere a designer could not have tuned it to
+  // by hand (criterion 23).
+  const constant = cell.entry.constant;
+  const range = WEEKLY_MODIFIER_SAFE_RANGES[constant];
+
+  if (constant === 'SPAWN_EDGE_WEIGHTS' || range === undefined) {
+    // SPAWN_EDGE_WEIGHTS' §10.7 range is "any set summing to 1", which is B7
+    // above and has already run against this cell's own weights.
+    w('W1 resolved value is inside its §10 safe range', true, 'bounded by B7', 'edge weights');
+  } else {
+    const resolved = cell.config[constant];
+    w(
+      'W1 resolved value is inside its §10 safe range',
+      resolved >= range.min && resolved <= range.max,
+      `${constant} in ${range.min}–${range.max}`,
+      `${resolved}`,
+    );
+  }
+
+  // W2 — the entry names a constant on the §14.5 list, and the cell changes
+  // that constant only. BEAM_WIDE_HALF_ANGLE_RAD is derived from
+  // BEAM_WIDE_ANGLE_DEG and §14.5 requires it to move with it, so it is the one
+  // companion key a cell may change.
+  const changed = [...changedRunConfigKeys(base.config, cell.config)].sort();
+  const allowed = (
+    cell.entry.constant === 'BEAM_WIDE_ANGLE_DEG'
+      ? ['BEAM_WIDE_ANGLE_DEG', 'BEAM_WIDE_HALF_ANGLE_RAD']
+      : [cell.entry.constant]
+  ).sort();
+  w(
+    'W2 the cell changes the constant it names, and no other',
+    changed.length === 0 || changed.join(',') === allowed.join(','),
+    allowed.join(', '),
+    changed.length === 0 ? 'nothing (a x1.00 cell)' : changed.join(', '),
+  );
+
+  // §14.6 — the margin the whole easy side of the power economy is fenced by.
+  const margin = asymptoteMargin(result);
+  w(
+    '§14.6 B3 margin is at least 10% for a published cell',
+    margin >= CELL_B3_MARGIN_FLOOR,
+    `>= ${(CELL_B3_MARGIN_FLOOR * 100).toFixed(0)}%`,
+    `${(margin * 100).toFixed(1)}%`,
+  );
+
+  // W3 — the plain cell reproduces the shipped config's Group A numbers
+  // exactly. If it does not, the override layer is lying about something.
+  if (cell.entry.id === 'plain') {
+    w(
+      'W3 the plain cell reproduces the shipped Group A numbers exactly',
+      groupANumbers(result) === groupANumbers(base),
+      'identical to the base run',
+      groupANumbers(result) === groupANumbers(base) ? 'identical' : 'the override layer moved something',
+    );
+  }
+
+  return assertions;
+}
+
+/** §14.9 — every cell of §14.5, each against its own Group B. */
+export function sweepModifiers(options: SimulationOptions): readonly CellResult[] {
+  const base = simulate({ ...options, config: SHIPPED_RUN_CONFIG });
+
+  return weeklyModifierCells().map((cell) => {
+    const result = simulate({
+      ...options,
+      config: cell.config,
+      tiers: tiersForCell(cell, options.tiers),
+    });
+    return { cell, result, assertions: checkCell(cell, result, base) };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -856,9 +1067,9 @@ function formatSummary(result: SimulationResult): string {
   lines.push(`  duty                    ${(landmarks.duty * 100).toFixed(1)}%`);
   lines.push(`  cumulativeSpawns(45)    ${landmarks.cumulativeSpawnsAtProbe.toFixed(2)}`);
   lines.push('  asymptote invariant (§10.7)');
-  lines.push(`    SPAWN_INTERVAL_MIN    ${SPAWN_INTERVAL_MIN.toFixed(3)} s`);
+  lines.push(`    SPAWN_INTERVAL_MIN    ${result.config.SPAWN_INTERVAL_MIN.toFixed(3)} s`);
   lines.push(
-    `    shortest cycle        ${landmarks.shortestSustainableCycle.toFixed(3)} s  (margin ${(((landmarks.shortestSustainableCycle - SPAWN_INTERVAL_MIN) / SPAWN_INTERVAL_MIN) * 100).toFixed(1)}%)`,
+    `    shortest cycle        ${landmarks.shortestSustainableCycle.toFixed(3)} s  (margin ${(asymptoteMargin(result) * 100).toFixed(1)}%)`,
   );
 
   return lines.join('\n');
@@ -886,6 +1097,10 @@ function formatAssertions(assertions: readonly Assertion[]): string {
 
 const USAGE = `npm run sim -- [options]
 
+  --modifiers       sweep every cell of the docs/design.md §14.5 weekly modifier
+                    table, asserting Group B plus W1-W3 per cell (§14.9). Group A
+                    is not run per cell: it reproduces §11.1 at the shipped
+                    config and a modifier is meant to move it.
   --tier <key>      first-timer | practised | expert. Report that tier alone, and
                     the target of every override below. Default: all three.
   --backlog <n>     override the selected tier's backlogTolerance (GAM-15's refit)
@@ -910,6 +1125,8 @@ export interface CliInvocation {
   readonly options: SimulationOptions;
   readonly calibrated: boolean;
   readonly csv: boolean;
+  /** §14.9 — sweep the modifier table instead of reporting the base run. */
+  readonly modifiers: boolean;
 }
 
 export function buildInvocation(argv: readonly string[]): CliInvocation {
@@ -925,6 +1142,7 @@ export function buildInvocation(argv: readonly string[]): CliInvocation {
       horizon: { type: 'string' },
       dt: { type: 'string' },
       csv: { type: 'boolean', default: false },
+      modifiers: { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
     },
   });
@@ -976,7 +1194,76 @@ export function buildInvocation(argv: readonly string[]): CliInvocation {
     // Selecting a tier alone is not a recalibration; changing its parameters is.
     calibrated: overrides.length > 0,
     csv: values.csv === true,
+    modifiers: values.modifiers === true,
   };
+}
+
+/**
+ * §14.9 — the sweep's report. One line per cell with the two numbers §14.5
+ * publishes, then every failing assertion named against the cell it failed on,
+ * because criterion 24 is "the sweep fails loudly on a bad cell" and a loud
+ * failure has to say *which* cell and *which* assertion.
+ */
+function runSweep(invocation: CliInvocation): number {
+  const cells = sweepModifiers(invocation.options);
+  const { dt, horizon } = invocation.options;
+
+  process.stdout.write(
+    `Lamplight Vigil — weekly modifier sweep (docs/design.md §14.9)\n` +
+      `dt ${dt} s, horizon ${horizon} s. ${cells.length} cells from the §14.5 table.\n` +
+      `Group B per cell, B9 at the §14.6 band [${CELL_RUN_BAND.min}, ${CELL_RUN_BAND.max}] s, ` +
+      `plus W1-W3. Group A runs once, at the shipped config, and is not swept.\n\n`,
+  );
+
+  const header = `${pad('cell', 26)}${pad('constant', 24)}${pad('resolved', 16)}${pad('first-timer', 13)}${pad('practised', 12)}${pad('B3 margin', 11)}  result`;
+  process.stdout.write(`${header}\n`);
+
+  let failedCells = 0;
+  let failedAssertions = 0;
+  let ranAssertions = 0;
+
+  for (const { cell, result, assertions } of cells) {
+    const failed = assertions.filter((assertion) => !assertion.ok);
+    ranAssertions += assertions.filter((assertion) => assertion.skipped === null).length;
+    failedAssertions += failed.length;
+    if (failed.length > 0) {
+      failedCells += 1;
+    }
+
+    const firstTimer = result.tiers.find((tier) => tier.tier.key === 'first-timer');
+    const practised = result.tiers.find((tier) => tier.tier.key === 'practised');
+    const resolved =
+      cell.value.kind === 'multiplier'
+        ? (cell.config[cell.entry.constant as 'SPAWN_INTERVAL_START']).toPrecision(4)
+        : cell.value.id;
+
+    process.stdout.write(
+      `${pad(cell.label, 26)}${pad(cell.entry.constant, 24)}${pad(resolved, 16)}` +
+        `${pad(`${show(firstTimer?.runLength ?? null, 2)} s`, 13)}` +
+        `${pad(`${show(practised?.runLength ?? null, 2)} s`, 12)}` +
+        `${pad(`${(asymptoteMargin(result) * 100).toFixed(1)}%`, 11)}  ` +
+        `${failed.length === 0 ? 'OK' : `FAIL (${failed.length})`}\n`,
+    );
+  }
+
+  process.stdout.write('\n');
+
+  for (const { cell, assertions } of cells) {
+    for (const assertion of assertions.filter((entry) => !entry.ok)) {
+      process.stdout.write(
+        `FAIL ${cell.label}: ${assertion.name} — expected ${assertion.expected}, got ${assertion.actual}\n`,
+      );
+    }
+  }
+
+  process.stdout.write(
+    failedAssertions === 0
+      ? `\nOK — ${cells.length} cells, ${ranAssertions} assertions passed.\n`
+      : `\n${failedAssertions} assertions failed across ${failedCells} of ${cells.length} cells. ` +
+          `A bound is a design question: report it on the task rather than adjusting the cell (§14.9).\n`,
+  );
+
+  return failedAssertions === 0 ? 0 : 1;
 }
 
 function main(argv: readonly string[]): number {
@@ -991,6 +1278,10 @@ function main(argv: readonly string[]): number {
   } catch (error) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
+  }
+
+  if (invocation.modifiers) {
+    return runSweep(invocation);
   }
 
   const result = simulate(invocation.options);
