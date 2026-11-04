@@ -278,7 +278,12 @@ export class CrawlerField {
     }
 
     const factor = 1 + (this.random() * 2 - 1) * this.config.CRAWLER_SPEED_JITTER;
-    this.crawlers.push(new Crawler(candidate.x, candidate.y, factor));
+
+    // The run's config goes in with the position and the jitter: §5.2's dwell is
+    // the `clinging-dark` entry of §14.5, and a crawler that read it from
+    // `src/config` would burn at the shipped 0.40 s in a week the sim certified
+    // at 0.46 or 0.52 (GAM-46). This is the only place a crawler is made.
+    this.crawlers.push(new Crawler(candidate.x, candidate.y, factor, this.config));
   }
 
   /** §6.2 — weighted draw. The weights are not uniform by perimeter. */

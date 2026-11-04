@@ -7,20 +7,32 @@
 
 import {
   BURN_DECAY_MULTIPLIER,
-  BURN_DWELL_TIME,
   CRAWLER_RADIUS,
   FREEZE_FLASH_TIME,
   LAMP_RADIUS,
   LAMP_X,
   LAMP_Y,
 } from '../config/index';
+import { BASE_TUNING, type CrawlerTuning } from '../config/tuning';
 
-/** Distance at which a crawler's centre counts as touching the lamp (§5.1). */
+/**
+ * Distance at which a crawler's centre counts as touching the lamp (§5.1).
+ *
+ * Still derived at module load, and allowed to be: §14.7 keeps both radii out of
+ * the §14.5 table deliberately, so no modifier can ever move this. The one number
+ * this file reads that a week *can* move is `BURN_DWELL_TIME`, and that one comes
+ * from the run's config rather than from the imports above.
+ */
 const CONTACT_DISTANCE = LAMP_RADIUS + CRAWLER_RADIUS;
 
 /**
  * A single crawler: a circle that walks a straight line at the lamp, stops dead
  * while any light touches it, and burns away under a focused beam.
+ *
+ * The §5.2 dwell comes from the run's tuning (GAM-46). Read at module load it
+ * made `clinging-dark` a label on a screen: `npm run sim` modelled the week at
+ * ×1.15 or ×1.30 and the game played every week at the shipped 0.40 s, so the
+ * sweep certified a week the game does not play.
  */
 export class Crawler {
   public x: number;
@@ -38,6 +50,15 @@ export class Crawler {
   /** §6.3 — per-crawler speed multiplier, drawn at spawn and fixed. */
   private readonly speedFactor: number;
 
+  /**
+   * The run's numbers, taken at spawn and fixed for this crawler's lifetime.
+   *
+   * §14.2 resolves a week once, at the transition to PLAYING, and `CrawlerField`
+   * holds that record for the whole run — so every crawler it spawns is handed
+   * the same one, and a crawler's dwell cannot drift from the week it spawned in.
+   */
+  private readonly config: CrawlerTuning;
+
   private dwell = 0;
   private litValue = false;
 
@@ -51,10 +72,23 @@ export class Crawler {
   private frozeThisFrame = false;
   private freezeFlashLeft = 0;
 
-  public constructor(x: number, y: number, speedFactor: number) {
+  /**
+   * @param config The numbers this crawler plays at (§14.9's override surface).
+   * Defaulted to the shipped values so a crawler built outside a run — in a test,
+   * or by a caller that predates OV-2 — behaves exactly as it did before. Every
+   * crawler the game makes is spawned by `CrawlerField`, which always passes the
+   * run's own record.
+   */
+  public constructor(
+    x: number,
+    y: number,
+    speedFactor: number,
+    config: CrawlerTuning = BASE_TUNING,
+  ) {
     this.x = x;
     this.y = y;
     this.speedFactor = speedFactor;
+    this.config = config;
 
     const dx = LAMP_X - x;
     const dy = LAMP_Y - y;
@@ -86,9 +120,17 @@ export class Crawler {
     return this.freezeFlashLeft / FREEZE_FLASH_TIME;
   }
 
-  /** Burn progress in [0, 1]. Pillar 2 requires this to be visible (§5.2). */
+  /**
+   * Burn progress in [0, 1]. Pillar 2 requires this to be visible (§5.2).
+   *
+   * Against the run's dwell, which is the same number `advance` banishes on: the
+   * arc `CrawlerRenderer` sweeps from this is a promise about when the crawler
+   * dies, and under `clinging-dark` a full arc that banished nothing — or a
+   * banish at three-quarters of one — would be exactly the pillar 2 failure
+   * §14.5 names for the beam's cone.
+   */
   public get burnFraction(): number {
-    return Math.min(1, this.dwell / BURN_DWELL_TIME);
+    return Math.min(1, this.dwell / this.config.BURN_DWELL_TIME);
   }
 
   /** Bearing from the lamp. Used by the anti-clustering check in §6.3. */
@@ -149,7 +191,7 @@ export class Crawler {
       this.y += this.headingY * speed * deltaSeconds;
     }
 
-    // 3. Banish.
-    return this.dwell >= BURN_DWELL_TIME;
+    // 3. Banish, at the run's dwell — never at the shipped one.
+    return this.dwell >= this.config.BURN_DWELL_TIME;
   }
 }

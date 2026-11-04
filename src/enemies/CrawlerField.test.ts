@@ -22,11 +22,29 @@ import {
   SPAWN_INTERVAL_MIN,
   SPAWN_INTERVAL_START,
 } from '../config/index';
-import { BASE_TUNING } from '../config/tuning';
+import { BASE_TUNING, tuningDifferences, type TuningConfig } from '../config/tuning';
+import {
+  WEEKLY_MODIFIERS,
+  applyWeeklyModifier,
+  weeklyCellLabel,
+  weeklyCells,
+  type WeeklyConstant,
+  type WeeklyModifier,
+} from '../config/weeklyModifiers';
 import { freePlayRun, seededUnitRandom, weeklyRunAt } from '../weekly/index';
 import { CrawlerField, rampedSpeed, spawnInterval, type BeamLight } from './CrawlerField';
 
 const FRAME = 1 / 60;
+
+/** A Wednesday in 2026-W45, which §14.4 schedules as `clinging-dark x1.30`. */
+const MID_WEEK_45 = Date.UTC(2026, 10, 4, 11, 30);
+
+/** The §14.5 entry with this `id`, or a failed assertion naming it. */
+function entryById(id: string): WeeklyModifier {
+  const entry = WEEKLY_MODIFIERS.find((candidate) => candidate.id === id);
+  assert.ok(entry !== undefined, `§14.5 has no entry ${id}`);
+  return entry;
+}
 
 /** docs/vision.md §6 criterion 4: the readability floor, in seconds. */
 const READABILITY_FLOOR = 1.5;
@@ -457,5 +475,247 @@ describe('the seeded run (design.md §14, GAM-38)', () => {
     assert.equal(rampedSpeed(0, weekly), weekly.CRAWLER_SPEED_BASE);
     assert.ok(rampedSpeed(60, weekly) > rampedSpeed(0, weekly));
     assert.equal(rampedSpeed(10_000, weekly), weekly.CRAWLER_SPEED_MAX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Every weekly modifier reaches the field — GAM-46, design.md §14.5
+// ---------------------------------------------------------------------------
+//
+// The companion to the beam's sweep in `src/beam/BeamModel.test.ts`. That one
+// proves the three constants §14.5 points at the beam reach it; this one proves
+// the four it points at `src/enemies` reach the field — through the real
+// spawner and the real crawlers, not through the two exported curves, because
+// the GAM-46 bug was a crawler reading `BURN_DWELL_TIME` from `src/config` while
+// the curves beside it already took a config.
+
+/** What a §14.5 constant does to the field, if anything. */
+type FieldEffect = 'dwell' | 'speed' | 'spawn-interval' | 'edges' | 'none';
+
+/**
+ * Every constant the table may touch, and what the field reads it for.
+ *
+ * A `Record` over the whole `WeeklyConstant` union on purpose, exactly as
+ * `BEAM_EFFECT` is: widening the table (§14.5 is closed, but it is edited at a
+ * block boundary) stops compiling here until someone states whether the field
+ * reads the new constant. Between this record and the beam's, every entry of the
+ * table has been answered for by one module or the other.
+ *
+ * The three `'none'`s are the beam's: a cone angle and the two power rates
+ * decide what is lit and what is burning, and the field is *told* both by the
+ * {@link BeamLight} it is handed.
+ */
+const FIELD_EFFECT: Readonly<Record<WeeklyConstant, FieldEffect>> = {
+  BURN_DWELL_TIME: 'dwell',
+  CRAWLER_SPEED_BASE: 'speed',
+  SPAWN_INTERVAL_START: 'spawn-interval',
+  SPAWN_EDGE_WEIGHTS: 'edges',
+  BEAM_WIDE_ANGLE_DEG: 'none',
+  POWER_DRAIN_RATE: 'none',
+  POWER_RECHARGE_RATE: 'none',
+};
+
+/** A field reset into one config, exactly as `startRun` resets it. */
+function cellField(config: TuningConfig, seed = 0x5eed): CrawlerField {
+  const field = new CrawlerField();
+  field.reset({ random: seededUnitRandom(seed), config });
+  return field;
+}
+
+/**
+ * Frames a field full of crawlers takes to banish its first, once a focused
+ * light comes on everywhere at once.
+ *
+ * Every crawler alive starts its dwell on the same frame, so the first banish is
+ * one whole dwell later; anything spawned during the burn started later and
+ * cannot beat them to it. @param elapsed is the run time the burn starts at, so
+ * the §5.4 ramps carry on from where the opening left them.
+ */
+function framesToFirstBanish(field: CrawlerField, elapsed: number): number {
+  assert.ok(field.all.length > 0, 'there is a field to burn');
+
+  // Two seconds is past the top of `BURN_DWELL_TIME`'s §10.6 safe range four
+  // times over, so a field still alive here is not burning on any weekly number.
+  for (let frames = 1; frames <= Math.round(2 / FRAME); frames += 1) {
+    if (field.step(FRAME, elapsed + frames * FRAME, BURNING).banished.length > 0) {
+      return frames;
+    }
+  }
+
+  return assert.fail('nothing burned away in two seconds');
+}
+
+/**
+ * Seconds a crawler takes to burn away in this config, measured through the
+ * field rather than through a `Crawler` built by hand.
+ *
+ * This is the probe that fails if `CrawlerField` stops handing its config to the
+ * crawlers it spawns, which no assertion on a hand-built `Crawler` would catch.
+ */
+function secondsToFirstBanish(config: TuningConfig): number {
+  const field = cellField(config);
+  run(field, 30, DARK);
+  return framesToFirstBanish(field, 30) * FRAME;
+}
+
+/**
+ * The edge each of the first `count` crawlers entered from, as text.
+ *
+ * Held under a wide light rather than walked in the dark, which is what makes
+ * this a probe of the *weights* and of nothing else. A frozen crawler does not
+ * move (§5.2 rule 1), so every bearing the §6.3 anti-clustering check reads is
+ * the bearing it was spawned at — identical under any speed — and nothing is
+ * banished, so the array only ever grows. Counted in spawns rather than in
+ * seconds for the same reason: with one seed, the n-th spawn draws the same
+ * numbers whenever it happens, so a longer or shorter opening does not move it.
+ *
+ * Walked in the dark instead, a crawler passing through the lamp reverses its
+ * bearing, and *when* it does that depends on `CRAWLER_SPEED_BASE` — so this
+ * would move under `restless-hollow` too, and the probe would be measuring the
+ * re-roll budget rather than the edges.
+ */
+function firstSpawnEdges(config: TuningConfig, count = 12): string {
+  assert.ok(count <= MAX_CRAWLERS, 'past the §5.3 cap the spawner starts dropping spawns');
+
+  const field = cellField(config);
+  const edges: string[] = [];
+  let elapsed = 0;
+
+  while (edges.length < count && elapsed < 600) {
+    elapsed += FRAME;
+    field.step(FRAME, elapsed, FLOODLIT);
+
+    for (const crawler of field.all.slice(edges.length)) {
+      edges.push(edgeOf(crawler));
+    }
+  }
+
+  assert.equal(edges.length, count, 'the field produced enough spawns to compare');
+  return edges.join(' ');
+}
+
+/** Which edge a crawler was placed on (§6.3 insets it by its own radius). */
+function edgeOf(crawler: { readonly x: number; readonly y: number }): string {
+  if (crawler.y === CRAWLER_RADIUS) {
+    return 'top';
+  }
+  if (crawler.y === RENDER_HEIGHT - CRAWLER_RADIUS) {
+    return 'bottom';
+  }
+  return crawler.x === CRAWLER_RADIUS ? 'left' : 'right';
+}
+
+describe('every weekly modifier reaches the field (§14.5)', () => {
+  const shipped = {
+    dwell: secondsToFirstBanish(BASE_TUNING),
+    speed: rampedSpeed(0, BASE_TUNING),
+    'spawn-interval': spawnInterval(0, BASE_TUNING),
+    edges: firstSpawnEdges(BASE_TUNING),
+  } as const;
+
+  it('Free Play is the shipped field (§14.8)', () => {
+    assert.equal(shipped.speed, CRAWLER_SPEED_BASE);
+    assert.equal(shipped['spawn-interval'], SPAWN_INTERVAL_START);
+    assert.ok(
+      Math.abs(shipped.dwell - BURN_DWELL_TIME) <= FRAME,
+      `burned at ${shipped.dwell}s, expected the shipped ${BURN_DWELL_TIME}s`,
+    );
+    assert.equal(secondsToFirstBanish(freePlayRun().config), shipped.dwell);
+  });
+
+  for (const { entry, valueIndex } of weeklyCells()) {
+    const label = weeklyCellLabel(entry, valueIndex);
+    const config = applyWeeklyModifier(BASE_TUNING, entry, valueIndex);
+
+    // A cell that resolves to the shipped numbers moves nothing, which is how
+    // `plain` (×1.00) is a cell like any other rather than a branch: W3 wants it
+    // to reproduce the shipped field exactly, and that is this row of the sweep.
+    const moves =
+      tuningDifferences(BASE_TUNING, config).length === 0 ? 'none' : FIELD_EFFECT[entry.constant];
+
+    it(`moves what §14.5 says it moves, and nothing else: ${label}`, () => {
+      const dwell = secondsToFirstBanish(config);
+      if (moves === 'dwell') {
+        assert.ok(
+          Math.abs(dwell - config.BURN_DWELL_TIME) <= FRAME,
+          `burned at ${dwell}s, expected the week's ${config.BURN_DWELL_TIME}s`,
+        );
+        assert.notEqual(dwell, shipped.dwell, 'the burn is not the shipped burn');
+      } else {
+        assert.equal(dwell, shipped.dwell, 'the burn is the shipped burn');
+      }
+
+      const speed = rampedSpeed(0, config);
+      if (moves === 'speed') {
+        assert.notEqual(speed, shipped.speed, 'the crawl moved');
+      } else {
+        assert.equal(speed, shipped.speed, 'the crawl is the shipped crawl');
+      }
+
+      const interval = spawnInterval(0, config);
+      if (moves === 'spawn-interval') {
+        assert.notEqual(interval, shipped['spawn-interval'], 'the opening moved');
+      } else {
+        assert.equal(interval, shipped['spawn-interval'], 'the opening is the shipped opening');
+      }
+
+      const edges = firstSpawnEdges(config);
+      if (moves === 'edges') {
+        assert.notEqual(edges, shipped.edges, 'they come from somewhere else');
+      } else {
+        assert.equal(edges, shipped.edges, 'they come from where they always did');
+      }
+    });
+  }
+
+  it('plays a weekly run at the week’s dwell, resolved from the clock (§14.2)', () => {
+    // End to end, through the path `startRun` actually takes: a week key from a
+    // real instant, the entry §14.4 schedules for it, and the field playing at
+    // it. 2026-W45 is `clinging-dark x1.30` — a 0.52 s burn, 30% longer than the
+    // shipped one, which is the week the sim has been certifying all along.
+    const weekly = weeklyRunAt(MID_WEEK_45);
+    assert.equal(weekly.week?.label, 'clinging-dark x1.30');
+
+    const field = new CrawlerField();
+    field.reset(weekly);
+    run(field, 30, DARK);
+
+    const burned = framesToFirstBanish(field, 30) * FRAME;
+
+    assert.ok(
+      Math.abs(burned - weekly.config.BURN_DWELL_TIME) <= FRAME,
+      `burned at ${burned}s, expected the week's ${weekly.config.BURN_DWELL_TIME}s`,
+    );
+    assert.ok(burned - BURN_DWELL_TIME > FRAME, 'and not the shipped 0.40 s');
+  });
+
+  it('leaves Free Play at the shipped dwell on that same week (criterion 28)', () => {
+    // §14.8 — Free Play runs the shipped config whatever week it is played in.
+    const field = new CrawlerField();
+    field.reset({ random: seededUnitRandom(0x5eed), config: freePlayRun().config });
+    run(field, 30, DARK);
+
+    const burned = framesToFirstBanish(field, 30) * FRAME;
+
+    assert.ok(Math.abs(burned - BURN_DWELL_TIME) <= FRAME, 'the shipped 0.40 s');
+    assert.equal(burned, shipped.dwell);
+  });
+
+  it('keeps a crawler on the week it spawned in, across a restart (§14.8)', () => {
+    // `R` from game-over restarts the mode just played, so `reset()` with no
+    // argument keeps the week — and therefore the dwell the field spawns at.
+    const clinging = applyWeeklyModifier(BASE_TUNING, entryById('clinging-dark'), 1);
+    const field = cellField(clinging);
+
+    run(field, 30, DARK);
+    field.reset();
+    run(field, 30, DARK);
+
+    const burned = framesToFirstBanish(field, 30) * FRAME;
+
+    assert.ok(
+      Math.abs(burned - clinging.BURN_DWELL_TIME) <= FRAME,
+      'the restart is still the week, not the shipped config',
+    );
   });
 });
