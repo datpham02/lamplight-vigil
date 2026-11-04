@@ -338,6 +338,47 @@ an open question* (`docs/vision.md` §8.1). A continuous ramp is the shape that
 assumes least. Discrete waves with lulls are a live alternative and belong to a
 later milestone, not to this one.
 
+**Both formulas are unchanged by the GAM-17 rebalance.** The curve was retuned by
+moving §10 values only; `spawnInterval()` and `rampedSpeed()` in
+`src/enemies/CrawlerField.ts` keep the shapes above.
+
+#### The shape the numbers are chosen for
+
+The two expressions above have three terms between them that a designer can move,
+and each one owns a different part of the run. Naming which is which is what keeps
+a retune from being a guess:
+
+| Term | What it owns | Why it is that term |
+| --- | --- | --- |
+| `SPAWN_INTERVAL_START` | **How busy the opening is.** | It is the only term that acts at `t = 0`, so it is the only one that can put a second and third crawler on screen while the player is still learning the width decision. |
+| `SPAWN_INTERVAL_DECAY_PER_SECOND` | **How fast the run turns over.** | It sets the *slope*, and therefore the distance between the moment a first-timer runs out of capacity and the moment a practised player does — the whole span the run-length criterion lives in. |
+| `SPAWN_INTERVAL_MIN` | **How hard the game ever gets.** | Past the floor the spawn term stops growing. Crawler speed has already capped (§11.2). So the floor is the moment the game stops getting harder, for good. |
+
+That last row is a change of meaning from the seeded spec, where the floor sat at
+`t ≈ 386 s` and was documented as "a safety stop, not a balance value". It is now
+a balance value and the most important one in the table, because **it is the only
+thing in the design that bounds difficulty at all.** Without a floor inside the
+reachable run, spawn *rate* — the reciprocal of a geometric decay — grows without
+limit, and the gap between arrivals and what a player can clear grows with it. A
+player does not experience unbounded growth as a difficulty curve; they experience
+it as a wall that arrives somewhere they cannot predict.
+
+So the curve is designed in three phases, and §11.1 derives the values that produce
+them:
+
+1. **Opening (0 – ~45 s).** A crawler every 3.2 s falling to every 2.7 s. Around
+   three on screen by 50 s. Busy enough that the width decision is forced in the
+   first half-minute, sparse enough to learn it in.
+2. **Slide (~45 s – ~300 s).** Arrivals pass what the player can clear, first for a
+   first-timer and much later for a practised one, and the shortfall grows —
+   never by more than **0.0035 crawlers per second, per second**. That bound is
+   what "readable" means here: the player can always see the field getting worse
+   and still has whole seconds to choose what to give up.
+3. **Asymptote (t ≥ ~332 s).** The floor binds, the speed cap has long since bound,
+   and nothing gets harder again. The game holds one fixed, maximal, losing
+   position. `SPAWN_INTERVAL_MIN` is chosen so that position is losing *provably* —
+   see the asymptote invariant in §10.7.
+
 ---
 
 ## 6. Spawning
@@ -443,14 +484,15 @@ have not spawned. So the banish-vs-survive comparison is:
 > banish income ≈ `spawn rate × SCORE_PER_BANISH`, against `SCORE_PER_SECOND_SURVIVED` flat.
 
 With `25` and `10`, the two are equal at a spawn rate of `10 / 25 = 0.4` per
-second, which §11.1's table puts at about **t = 120 s**. That single crossover is
+second, which §11.1's table puts at about **t = 70 s**. That single crossover is
 what these two numbers actually buy:
 
 | Phase of the run | Spawn rate (§11.1) | Banish income | Time income | Which pays |
 | --- | --- | --- | --- | --- |
-| Opening (`t = 0`) | 0.250/s | 6.3 pts/s | 10 pts/s | **Surviving** |
-| `t ≈ 120 s` | 0.404/s | 10.1 pts/s | 10 pts/s | Parity |
-| Practised crossing (`t ≈ 218 s`) | 0.600/s | 15.0 pts/s | 10 pts/s | **Banishing** |
+| Opening (`t = 0`) | 0.313/s | 7.8 pts/s | 10 pts/s | **Surviving** |
+| `t ≈ 70 s` | 0.400/s | 10.0 pts/s | 10 pts/s | Parity |
+| Practised crossing (`t ≈ 184 s`) | 0.595/s | 14.9 pts/s | 10 pts/s | **Banishing** |
+| Asymptote (`t ≥ 332 s`) | 1.000/s | 25.0 pts/s | 10 pts/s | **Banishing** |
 
 So the weighting produces a **gradient, not a flat margin**: patience is correct
 early, when crawlers are scarce and every one of them is also the thing that ends
@@ -459,12 +501,27 @@ worth waiting on. The player is not being asked to pick a strategy once; they ar
 being asked to notice when the answer changed. That is the same triage the beam
 width demands, expressed in the score.
 
+**The GAM-17 rebalance moved the crossover from ~120 s to ~70 s, and neither score
+value changed.** It moved because the crossover is a property of the *spawn curve*,
+not of the weights: it sits wherever the rate reaches `0.4/s`, and the new curve
+gets there sooner. This is an improvement, not a side effect to be tuned back out.
+At 120 s the crossover sat past where most first runs end, so the median player
+never reached the moment the right answer changes — the gradient §8 exists to
+create was invisible to exactly the audience it was for. At 70 s it falls inside
+the modelled median first run of 79 s, so a typical player now lives through both
+halves of it. **Leave `SCORE_PER_BANISH` at 25.** If GAM-15 reports first-timers
+abandoning the wide beam outright and burning everything from the first second,
+that is the signal to raise it — raising it moves the crossover *later*, which is
+the correction for over-aggression.
+
 Averaged across a whole deep run the two land near parity — §11.1's practised run
-banishes 95 crawlers in 240 s, a realised 0.40/s, paying 9.9 points per second
-against time's 10. Neither strategy dominates end to end. That is the intent, and
-it is why **the earlier framing of a flat "aggression wins by a quarter" was wrong**
-and has been removed: `0.5` banishes/s is a *capacity* figure from §11.3, not a
-realised rate, and no player sustains it because no spawner supplies it.
+banishes about 117 crawlers in 250 s, a realised 0.47/s, paying 11.7 points per
+second against time's 10. Aggression edges ahead over a deep run, which is right:
+the deep run is the one that spent its length under the arrivals it could not
+clear. Neither strategy dominates end to end. That is the intent, and it is why
+**the earlier framing of a flat "aggression wins by a quarter" was wrong** and has
+been removed: `0.5` banishes/s is a *capacity* figure from §11.3, not a realised
+rate, and no player sustains it because no spawner supplies it.
 
 Retune either value only against the other, and re-derive **the crossover time**,
 not a per-second margin. Raising `SCORE_PER_BANISH` moves the crossover earlier and
@@ -513,9 +570,22 @@ every parameter below is a `src/config` value from §10.
 
 | Set | `BEAM_WIDE_ANGLE_DEG` | `BURN_DWELL_TIME` | `POWER_DRAIN_RATE` | `POWER_RECHARGE_RATE` | Sustainable focus duty |
 | --- | --- | --- | --- | --- | --- |
-| **A** — baseline, the §10 values | 70 | 0.45 | 26 | 17 | 39.5% |
-| **B** — tighter economy | 54 | 0.35 | 34 | 15 | 30.6% |
-| **C** — looser economy | 86 | 0.60 | 20 | 22 | 52.4% |
+| **A** — baseline, the §10 values | 70 | 0.40 | 26 | 22 | 45.8% |
+| **B** — tighter economy | 54 | 0.32 | 34 | 18 | 34.6% |
+| **C** — looser economy | 86 | 0.55 | 20 | 26 | 56.5% |
+
+**Set A was re-baselined by GAM-17** and sets B and C moved with it, because set A
+is by definition the current §10 values and two of them changed (§11.1). The
+spike's structure is untouched: A is the shipping economy, B is meaningfully
+tighter, C is meaningfully looser, and all three stay inside the §10 safe ranges.
+Any spike results recorded against the old set A are superseded — the spike had
+not been run when GAM-17 landed, so nothing is lost.
+
+All three sets satisfy the asymptote invariant in §10.7 against
+`SPAWN_INTERVAL_MIN = 1.00` — A at 1.13 s, B at 1.27 s, C at 1.19 s — so whichever
+set wins the spike, the game still out-produces perfect play at the floor. **Check
+that invariant again for any set the spike adds**: a set that fails it ships a game
+a sufficiently good player cannot lose.
 
 Per set, record:
 
@@ -605,8 +675,8 @@ exports match `src/config/index.ts` as seeded by the skeleton task.
 | --- | --- | --- | --- | --- | --- |
 | `POWER_MAX` | `number` | power units | `100` | 50–200 | §4.1 |
 | `POWER_START` | `number` | power units | `100` | 0–`POWER_MAX` | §2.2 reset. Equal to `POWER_MAX` unless a partial start is a deliberate choice |
-| `POWER_DRAIN_RATE` | `number` | power/s | `26` | 16–40 | §4.1. Spike parameter (§9.2) |
-| `POWER_RECHARGE_RATE` | `number` | power/s | `17` | 10–28 | §4.1. Spike parameter (§9.2) |
+| `POWER_DRAIN_RATE` | `number` | power/s | `26` | 16–40 | §4.1. Spike parameter (§9.2). **Unchanged by GAM-17** — see §11.1 |
+| `POWER_RECHARGE_RATE` | `number` | power/s | `22` | 10–28 | §4.1. Spike parameter (§9.2). **GAM-17: 17 → 22.** Sets the sustainable focus duty with `POWER_DRAIN_RATE`, and therefore kill capacity. Subject to the §10.7 asymptote invariant |
 | `POWER_FOCUS_REARM` | `number` | power units | `20` | 5–40 | §4.2. Must be `> 0` and `< POWER_MAX` |
 
 ### 10.5 Crawler
@@ -638,21 +708,51 @@ well inside. See §11.2 for the derivation of `234` and `156`.
 
 | Name | Type | Unit | Initial | Safe range | Governs |
 | --- | --- | --- | --- | --- | --- |
-| `BURN_DWELL_TIME` | `number` | s | `0.45` | 0.25–0.80 | §5.2. Spike parameter (§9.2) |
-| `BURN_DECAY_MULTIPLIER` | `number` | multiplier | `1.5` | 0.5–4.0 | §5.2 dwell decay rate |
+| `BURN_DWELL_TIME` | `number` | s | `0.40` | 0.25–0.80 | §5.2. Spike parameter (§9.2). **GAM-17: 0.45 → 0.40.** Sets the drain cost of one banish with `BEAM_TRANSITION_TIME`. Subject to the §10.7 asymptote invariant |
+| `BURN_DECAY_MULTIPLIER` | `number` | multiplier | `1.5` | 0.5–4.0 | §5.2 dwell decay rate. **Unchanged by GAM-17** — see §11.1 |
 
 ### 10.7 Spawning
 
 | Name | Type | Unit | Initial | Safe range | Governs |
 | --- | --- | --- | --- | --- | --- |
-| `SPAWN_INTERVAL_START` | `number` | s | `4.0` | 2.5–6.0 | §5.4 |
-| `SPAWN_INTERVAL_MIN` | `number` | s | `0.85` | 0.5–1.5 | §5.4 floor |
-| `SPAWN_INTERVAL_DECAY_PER_SECOND` | `number` | multiplier per s | `0.996` | 0.990–0.999 | §5.4. The single most sensitive value in the table — see §11.1 |
+| `SPAWN_INTERVAL_START` | `number` | s | `3.2` | 2.5–6.0 | §5.4. **GAM-17: 4.0 → 3.2.** Owns how busy the opening is |
+| `SPAWN_INTERVAL_MIN` | `number` | s | `1.00` | 0.90–1.30, **subject to the asymptote invariant below** | §5.4 floor. **GAM-17: 0.85 → 1.00, and it is now a balance value, not a safety stop.** Owns how hard the game ever gets |
+| `SPAWN_INTERVAL_DECAY_PER_SECOND` | `number` | multiplier per s | `0.9965` | 0.9950–0.9990 | §5.4. **GAM-17: 0.996 → 0.9965.** Still the single most sensitive value in the table — it sets every capacity crossing at once. Re-derive §11.1 before changing it. The range narrowed from `0.990` because anything below `0.9950` reintroduces the late-game cliff this rebalance removed |
 | `SPAWN_EDGE_WEIGHTS` | `{ top: number; bottom: number; left: number; right: number }` | weights | `{ top: 0.2, bottom: 0.2, left: 0.3, right: 0.3 }` | any set summing to `1` | §6.2 |
 | `SPAWN_CORNER_INSET` | `number` | px | `40` | 0–120 | §6.3 |
 | `SPAWN_MIN_SEPARATION_DEG` | `number` | degrees | `25` | 0–45 | §6.3 anti-clustering |
 | `SPAWN_PLACEMENT_ATTEMPTS` | `number` | count | `6` | 1–12 | §6.3 re-roll budget |
 | `MAX_CRAWLERS` | `number` | count | `16` | 6–40 | §5.3 cap. Performance rail — see §11.4 |
+
+**Asymptote invariant — binds `SPAWN_INTERVAL_MIN` to the power economy and the
+burn, across four rows in three subsections:**
+
+> `SPAWN_INTERVAL_MIN` < `(BEAM_TRANSITION_TIME + BURN_DWELL_TIME) × (POWER_DRAIN_RATE + POWER_RECHARGE_RATE) / POWER_RECHARGE_RATE`
+
+The right-hand side is the **shortest power-sustainable banish cycle**: the seconds
+of wall clock a player must spend, at best, to pay for one banish out of the power
+economy — the drain seconds of narrowing plus dwell, divided by the sustainable
+focus duty (§11.3). It assumes perfect aim, zero travel between targets and zero
+wasted focus, so no human reaches it; it is a hard ceiling on kill rate, not a
+target.
+
+The invariant says the floor interval must sit **below** that ceiling, so that at
+the hardest the game ever gets, crawlers arrive faster than even perfect play can
+clear them. Break it and the game has a stable state in which a sufficiently good
+player never loses: the run never ends, the score grows without bound, and
+`docs/vision.md` pillar 3 — "runs target 45 to 120 seconds" — has no upper bound
+at all at the top of the skill range.
+
+At the initial values: `1.00 < (0.12 + 0.40) × 48 / 22 = 1.13 s`, a margin of 13%.
+
+**Check it as one expression, not as four ranges.** Each of the four rows is
+individually safe anywhere inside its own band while the product is not: at
+`BURN_DWELL_TIME = 0.25`, `POWER_DRAIN_RATE = 16` and `POWER_RECHARGE_RATE = 28`
+the ceiling falls to `0.37 × 44 / 28 = 0.58 s`, below every value in
+`SPAWN_INTERVAL_MIN`'s own range, without any row leaving its band. This is the
+same failure mode as the joint speed bound in §10.5, and it is checked the same
+way — by the simulation in [`docs/throughput-sim.md`](./throughput-sim.md), on
+every retune.
 
 ### 10.8 Score
 
@@ -682,55 +782,238 @@ Every figure below is derived from §10 and is **not** itself a tunable. It is s
 so an implementer or QA can tell a deliberate value from a typo, and so that
 retuning can be checked rather than guessed.
 
-### 11.1 Run length — `docs/vision.md` §6 criterion 2
+### 11.1 Run length and the difficulty curve — `docs/vision.md` §6 criterion 2
 
-Target: **median first-time run 45–120 s; a practised player can exceed 3 minutes.**
+Targets: **median first-time run 45–120 s; a practised player can exceed 3
+minutes**; plus the two GAM-17 requirements — **pressure felt within 30–60 s**, and
+**a late game that is hard but has no cliff**.
 
-The model: a run ends when one crawler gets through. A player "services" a crawler
-by getting the beam onto it before it arrives. Call `s` the seconds of beam
-attention one crawler costs — acquire, commit, burn. The player keeps up while the
-spawn rate stays under `1/s`, and leaks shortly after it passes.
+Everything below is derived from §10 and is checkable by the deterministic
+simulation specified in [`docs/throughput-sim.md`](./throughput-sim.md). That
+script is the executable form of this section: if it and this section disagree,
+one of them has a bug, and the task that finds the disagreement fixes both.
 
-From the power economy, the theoretical ceiling on sustained burning is `1.44 s`
-per banish (§11.3), so `s ≈ 1.6 s` for a practised player once aiming is included,
-and `s ≈ 3.2 s` for a first-timer who over-holds focus, releases early and wastes
-power. That gives a first-timer capacity of `0.31` crawlers/s and a practised
-capacity of about `0.60`.
+#### What was wrong with the seeded curve
 
-Spawn rate is `1 / interval(t)`:
+The seeded values (`SPAWN_INTERVAL_START = 4.0`,
+`SPAWN_INTERVAL_DECAY_PER_SECOND = 0.996`, `SPAWN_INTERVAL_MIN = 0.85`,
+`POWER_RECHARGE_RATE = 17`, `BURN_DWELL_TIME = 0.45`) hit the run-length numbers
+and still produced the two complaints the Board raised after playing the build.
+Both are properties of the curve's *shape*, not of where it ends:
 
-| `t` (s) | `interval(t)` (s) | spawns/s | |
+1. **The opening is empty.** A spawn every 4.0 s against a journey of 4.5–8.5 s
+   (§11.2) puts fewer than two crawlers on screen for the first half-minute. The
+   player is never holding two threats at once, so the width decision — the whole
+   game — does not arise. The field only reaches three crawlers at about **62 s**,
+   by which point a first-timer is most of the way through their run.
+2. **The late game is a wall, not a ramp.** Spawn *rate* is the reciprocal of a
+   geometric decay, so it grows exponentially and without bound: `0.25/s` at
+   `t = 0`, `0.65/s` at 240 s, `1.18/s` at the floor. Kill capacity is flat.
+   The shortfall therefore grows faster the longer you survive, and the worst
+   arrival-to-capacity ratio the game can reach is **2.44×** for a practised
+   player. Nothing announces it; the field simply stops being clearable.
+
+Neither defect is fixed by moving the endpoints. The fix is a busier start, a
+shallower slope, a floor that binds inside a reachable run, and enough kill
+capacity that "many at once" is answerable.
+
+#### The service model
+
+A run ends when one crawler reaches the lamp. Between spawning and arriving, each
+crawler must be either **serviced** (banished) or **held** (kept frozen under the
+beam). Holding defers a crawler; it does not remove one, and it costs beam time
+that is then not spent killing. So the run is a single-server queue with a
+tolerance for backlog:
+
+- **Kill capacity** `C` — banishes per second a player can sustain, set by the
+  power economy and by how much beam time they waste. Derived below.
+- **Spawn rate** `r(t) = 1 / interval(t)` — §5.4.
+- **Backlog** `n(t)` — unserviced crawlers in flight. It grows at `r(t) − C`
+  whenever that is positive.
+- **Backlog tolerance** `B` — how many unserviced crawlers a player can keep
+  frozen before one slips through on a bearing the beam is not on. **The run ends
+  when `n` reaches `B`.**
+
+`B` is anchored on the beam, not invented: a wide cone covers
+`BEAM_WIDE_ANGLE_DEG / 360 = 70 / 360 = 19.4%` of the bearings around the lamp, so
+a player doing nothing but sweeping can keep roughly `1 / 0.194 ≈ 5` bearings
+re-lit. A first-timer sweeping loosely while also trying to burn manages fewer; a
+practised player placing the cone deliberately manages about that; an expert a
+little more. **`B` is the one calibrated number in this model and GAM-15 is what
+calibrates it** — see the recalibration rule at the end of this section.
+
+**Kill capacity.** One banish costs `BEAM_TRANSITION_TIME + BURN_DWELL_TIME`
+seconds of *drain* (§3.1: the drain starts when the key goes down, not when the
+beam finishes narrowing), plus whatever focused seconds the player wastes
+over-holding or re-earning dwell lost to decay (§5.2). Call that total `D`. The
+sustainable focus duty is `POWER_RECHARGE_RATE / (POWER_DRAIN_RATE +
+POWER_RECHARGE_RATE)` = `22 / 48` = **45.8%** (§11.3), so the power-limited cycle
+is `D / 0.458` seconds per banish. A player is also limited by the wall-clock
+round trip — drain, swing to the next target while wide, widen back — so:
+
+> `C = 1 / max(D + aim + BEAM_TRANSITION_TIME, D / duty)`
+
+| Skill tier | `aim` (s, wide) | waste (s, focused) | `D` (s) | cycle (s) | **`C`** (banishes/s) | `B` |
+| --- | --- | --- | --- | --- | --- | --- |
+| First-timer | 1.10 | 0.90 | 1.42 | 3.10 | **0.323** | 3 |
+| Practised | 0.50 | 0.25 | 0.77 | 1.68 | **0.595** | 5 |
+| Expert | 0.30 | 0.05 | 0.57 | 1.24 | **0.804** | 6 |
+
+Every tier is power-limited, not wall-clock-limited, at these values — which is
+why `POWER_RECHARGE_RATE` is the lever that moved. The `aim` and waste figures are
+behavioural assumptions, stated so they can be argued with: `aim` is a mouse swing
+of a quarter to a third of the canvas plus the decision to make it, and waste is
+over-holding past the banish plus dwell re-earned after a wobble (at
+`BURN_DECAY_MULTIPLIER = 1.5`, every 0.1 s off target costs 0.15 s of dwell).
+
+#### The new curve
+
+`interval(t) = max(1.00, 3.2 × 0.9965ᵗ)`. Writing `k = −ln(0.9965) = 0.003506`,
+spawn rate is `0.3125 × e^{kt}` until the floor binds.
+
+| `t` (s) | `interval(t)` (s) | spawns/s | vs. seeded | |
+| --- | --- | --- | --- | --- |
+| 0 | 3.20 | 0.313 | +25% | opening: a crawler every 3.2 s |
+| 9 | 3.10 | **0.323** | | **crosses first-timer capacity** |
+| 30 | 2.88 | 0.347 | +23% | |
+| 45 | 2.73 | 0.366 | | 15 crawlers seen; about 3 on screen by 50 s |
+| 70 | 2.50 | **0.400** | | **score crossover (§8)** |
+| 120 | 2.10 | 0.476 | +18% | |
+| 180 | 1.70 | 0.587 | +14% | |
+| 184 | 1.68 | **0.595** | | **crosses practised capacity** |
+| 240 | 1.38 | 0.725 | +11% | |
+| 270 | 1.24 | **0.804** | | **crosses expert capacity** |
+| 332 | **1.00** | **1.000** | +6% | **floor binds — nothing gets harder again** |
+| 346 | 1.00 | 1.000 | 0% | the two curves cross; the seeded one keeps climbing |
+| 400 | 1.00 | 1.000 | −15% | seeded: 1.176/s, and still the hardest it ever gets |
+
+Read the "vs. seeded" column as the whole rebalance in one line: **more pressure
+everywhere up to 346 s, and a lower, fixed ceiling after it.** The new curve is
+hotter than the old one for longer than anyone plays, then stops; the old one
+stays cooler for four minutes and then overtakes it and keeps going. That
+inversion is the rebalance.
+
+#### Run lengths
+
+Integrating `n(t)` from each tier's crossing to `n = B`:
+
+| Tier | Capacity crossed | Backlog reaches `B` | **Run length** | Crawlers seen | Banished | Score |
+| --- | --- | --- | --- | --- | --- | --- |
+| First-timer | 9 s | at 79 s | **79 s** | 28 | ~24 | ~1 390 |
+| Practised | 184 s | at 250 s | **250 s** | 125 | ~117 | ~5 425 |
+| Expert | 270 s | at 332 s | **332 s** | 196 | ~187 | ~8 000 |
+
+- **Criterion 2, median run.** 79 s sits mid-window in 45–120 s, with the seeded
+  curve's 90 s for comparison. The window has room on both sides of the median for
+  the spread a cohort of ten will actually produce.
+- **Criterion 2, practised player.** 250 s clears 180 s by 39%, so the requirement
+  is met by a margin rather than by a hair, and an expert reaches 332 s.
+- **Score spread.** About 1 400 to 8 000 — nearly 6×, against the seeded curve's
+  4×. Best-score chasing has somewhere to go.
+
+Note what the first-timer row says: they cross their capacity at **9 s** and then
+spend **70 s** slowly losing. That is deliberate and it is the answer to "the time
+until crawlers get busy is a bit long". The run is not a safe phase followed by a
+collapse; it is a managed retreat from almost the first spawn, which is the
+fantasy in the game's title. The backlog is still under 1 crawler at 45 s and under
+2.5 at 75 s, so the player is never drowning — they are always one decision behind,
+which is where this game is supposed to live.
+
+#### Pressure within 30–60 s
+
+Modelled crawlers on screen is `n(t) + r(t) × (mean seconds a serviced crawler is
+alive)`, the second term taking 6 s for a first-timer from the journey times in
+§11.2.
+
+| | Seeded curve | New curve |
+| --- | --- | --- |
+| Crawlers on screen at 45 s | 2.1 | **2.9** |
+| Reaches 3 on screen at | 62 s | **47 s** |
+| Cumulative spawns by 45 s | 12 | **15** |
+
+Three crawlers is the threshold that matters, because two can sit inside one wide
+cone and three usually cannot (§3.2) — three is the first number at which the
+player must *choose*. Moving it from 62 s to 47 s puts the first real triage inside
+the first minute of a first run, which is also what `docs/vision.md` §6 criterion 5
+needs: a player cannot describe a trade-off they were never made to make.
+
+#### No cliff
+
+Three bounds, each one checkable:
+
+1. **The shortfall never accelerates past `k × r`.** Spawn rate grows at
+   `d(rate)/dt = k × rate ≤ 0.003506 × 1.000` = **0.0035 crawlers/s per second**,
+   and kill capacity is flat, so that is also the bound on how fast the shortfall
+   grows. Seeded: `0.004008 × 1.176` = 0.0047/s², 34% steeper and never bounded.
+2. **It stops growing altogether at 332 s.** The floor binds there and
+   `CRAWLER_SPEED_MAX` has bound since 198 s (§11.2), so past 332 s no term in
+   §5.4 is still moving. The game's hardest state is reached, named, and fixed.
+3. **The hardest state is gentler than the seeded curve's.** Worst
+   arrival-to-capacity ratio, `(1 / SPAWN_INTERVAL_MIN) / C`:
+
+| Tier | Seeded worst ratio | New worst ratio |
+| --- | --- | --- |
+| First-timer | 4.37× | **3.10×** |
+| Practised | 2.44× | **1.68×** |
+| Expert | 1.84× | **1.24×** |
+
+A practised player at the floor is out-produced by 68%, not by 144%. That is the
+difference between a field you are losing and a field that has stopped being a
+game. And the expert's 1.24× is the asymptote invariant in §10.7 doing its job from
+the other side: above 1.0, so the run still ends.
+
+#### Which levers moved, and why each one
+
+Five values changed. Each owns one of the defects above; nothing changed that did
+not have to.
+
+| Lever | From | To | Why this one |
 | --- | --- | --- | --- |
-| 0 | 4.00 | 0.250 | opening: a crawler every four seconds, time to learn |
-| 30 | 3.55 | 0.282 | |
-| 55 | 3.21 | **0.312** | **crosses first-timer capacity (0.31/s)** |
-| 90 | 2.79 | 0.359 | |
-| 120 | 2.47 | 0.404 | |
-| 180 | 1.94 | 0.514 | |
-| 218 | 1.67 | **0.600** | **crosses practised capacity (0.60/s)** |
-| 240 | 1.53 | 0.654 | |
+| `SPAWN_INTERVAL_START` | 4.0 | **3.2** | The only term that acts at `t = 0`, so the only one that can fix the empty opening. 3.2 s is the value at which three crawlers are on screen by 47 s while a first-timer's backlog is still under 1 at 45 s — busy, not lethal |
+| `SPAWN_INTERVAL_DECAY_PER_SECOND` | 0.996 | **0.9965** | *Shallower*, against the instinct that a harder game needs a steeper ramp. The slope sets the distance between the first-timer and practised crossings; a shallower slope buys a 70 s slide instead of a 30 s collapse, and is bound 1 above |
+| `SPAWN_INTERVAL_MIN` | 0.85 | **1.00** | Promoted from safety stop to the bound on difficulty. At 1.00 s the floor binds at 332 s — inside a reachable run — and sits 13% under the shortest power-sustainable banish cycle, so the asymptote is provably losing (§10.7) |
+| `POWER_RECHARGE_RATE` | 17 | **22** | "Hard to clear them all" is a capacity complaint, and every tier is duty-limited, so duty is the lever: 39.5% → 45.8% lifts all three capacities by **15.9%** at a stroke. Recharge rather than drain, because drain is what the player *feels* when they commit, and changing it would re-pitch the core trade-off rather than its throughput |
+| `BURN_DWELL_TIME` | 0.45 | **0.40** | Cuts the drain cost of a banish from 14.8 to 13.5 power (§11.3), which is the rest of the capacity rise — and it is tilted toward the skilled tiers (+8.1% for an expert against +3.4% for a first-timer), because dwell is a larger share of a clean kill than of a sloppy one, and a crowded late field is exactly where the complaint came from. **0.40 is where the cut stops:** at 0.35 the shortest sustainable banish cycle falls to 1.03 s and the §10.7 asymptote invariant is left with 2% of headroom against `SPAWN_INTERVAL_MIN` instead of 13% |
 
-A first-timer meets more pressure than they can absorb at about **55 s** and leaks
-within the following 15–30 s, putting the median death around **70–85 s** —
-mid-window, with enough spread on either side to stay inside 45–120 s for players
-well above and below the median. A practised player meets their crossing at about
-**218 s**, comfortably past the three-minute requirement without making it a
-formality.
+Deliberately **not** changed, each for a stated reason:
 
-`SPAWN_INTERVAL_MIN` is reached at about 386 s. It is a safety stop, not a balance
-value: nothing in the target window touches it.
+- **`POWER_DRAIN_RATE`** — one lever is enough to move the duty cycle, and drain is
+  the number that sets what a commitment costs in the moment. Moving both would
+  make the §9.2 spike unreadable.
+- **`CRAWLER_SPEED_BASE`, `CRAWLER_SPEED_MAX`, `CRAWLER_SPEED_RAMP_PER_SECOND`,
+  `CRAWLER_SPEED_JITTER`** — speed is the one difficulty term that already has no
+  cliff: it caps at 198 s. It is also the term bounded by the readability criterion
+  (§11.2, joint bound), where the current margin is 63% of the limit and is worth
+  keeping. Spawn pressure is the dominant term (§5.4) and the right place to spend
+  a rebalance.
+- **`BURN_DECAY_MULTIPLIER`** — softening it would raise first-timer capacity and
+  almost nothing else, which *narrows* the gap between tiers and therefore pulls
+  the practised crossing back toward the first-timer's. The three-minute
+  requirement needs that gap wide.
+- **`MAX_CRAWLERS`** — a performance rail, not a balance lever (§5.3). The new peak
+  is still under it; see §11.4.
+- **`SPAWN_FIRST_DELAY`, `SPAWN_EDGE_WEIGHTS`, `SPAWN_CORNER_INSET`,
+  `SPAWN_MIN_SEPARATION_DEG`** — placement and grace, not pressure. None of them
+  appears in the arithmetic above.
+- **`SCORE_PER_SECOND_SURVIVED`, `SCORE_PER_BANISH`** — the crossover moved on its
+  own, to a better place. See §8.
 
-Cumulative spawns, `∫₀ᵀ dt / interval(t)`: about **22** by 75 s and about **101** by
-240 s. A median first run therefore sees roughly 22 crawlers, banishes perhaps 18
-of them, and scores around **1200** (`750 + 18 × 25`); a deep practised run sees
-about 101, banishes about 95, and scores around **4800** (`2400 + 95 × 25`). A wide
-enough spread for best-score chasing to have somewhere to go.
+#### Retuning and recalibration
 
-`SPAWN_INTERVAL_DECAY_PER_SECOND` is the most sensitive value in the table, because
-it sets both crossings at once. Moving it from `0.996` to `0.994` pulls the
-first-timer crossing from 55 s to about 37 s and the practised crossing from 218 s
-to about 146 s — a run length below the target window and a three-minute
-requirement that can no longer be met. Re-derive this table before changing it.
+`SPAWN_INTERVAL_DECAY_PER_SECOND` remains the most sensitive value in §10, because
+it sets all three crossings at once. At `0.9950` the practised crossing falls from
+184 s to 128 s and the practised run to about 184 s, so the three-minute
+requirement survives only by a hair; at `0.9990` the slide stretches so far that
+the median first run reaches about 165 s and leaves the window from the other
+side. That is why its safe range narrowed. **Re-derive this section before
+changing it, and run the simulation.**
+
+`B` — 3 / 5 / 6 — is the model's one uncalibrated input, and the run-length
+predictions are roughly linear in it. **GAM-15 is the calibration.** Fit `B` to the
+observed median first-time run, re-run the simulation, and if the refitted `B`
+moves the practised prediction under 180 s, bring `SPAWN_INTERVAL_DECAY_PER_SECOND`
+up toward `0.9975` before touching anything else — it is the lever that separates
+the tiers without disturbing the opening.
 
 ### 11.2 Readability — `docs/vision.md` §6 criterion 4
 
@@ -768,41 +1051,58 @@ base speed and **5.0 s** at the cap.
 
 ### 11.3 The power economy
 
-- Continuous focus from a full bar: `POWER_MAX / POWER_DRAIN_RATE` = **3.85 s**.
-- Empty to full: `POWER_MAX / POWER_RECHARGE_RATE` = **5.88 s**.
+- Continuous focus from a full bar: `POWER_MAX / POWER_DRAIN_RATE` = **3.85 s**
+  (unchanged by GAM-17 — `POWER_DRAIN_RATE` did not move).
+- Empty to full: `POWER_MAX / POWER_RECHARGE_RATE` = **4.55 s** (was 5.88 s).
+- Zero to the §4.2 rearm threshold: `POWER_FOCUS_REARM / POWER_RECHARGE_RATE` =
+  **0.91 s** (was 1.18 s). Still long enough to read as one recovery beat rather
+  than a flicker, which is the only thing that threshold has to buy.
 - Sustainable focus duty cycle:
-  `POWER_RECHARGE_RATE / (POWER_DRAIN_RATE + POWER_RECHARGE_RATE)` = **39.5%**.
-  The player spends about two-fifths of a sustained run narrow and three-fifths
-  wide. That ratio is the triage in `docs/concept.md` §6.5 expressed as a number,
-  and it is what the §9 spike varies.
+  `POWER_RECHARGE_RATE / (POWER_DRAIN_RATE + POWER_RECHARGE_RATE)` = **45.8%**
+  (was 39.5%). The player spends a little under half of a sustained run narrow and
+  a little over half wide. That ratio is the triage in `docs/concept.md` §6.5
+  expressed as a number, it is what the §9 spike varies, and **it is the term
+  GAM-17 moved to make a crowded field clearable** (§11.1).
 - Power for one efficient banish, including narrowing:
-  `(BEAM_TRANSITION_TIME + BURN_DWELL_TIME) × POWER_DRAIN_RATE` = **14.8 units**.
-- Efficient banishes from a full bar: `POWER_MAX / 14.8` = **6.7**.
-- Theoretical sustained banish rate: 0.57 s focused plus `14.8 / 17 = 0.87 s`
-  recharging = **1.44 s per banish**, i.e. **0.69/s** with perfect aim and no
-  travel between targets. Real practised play lands near **0.5/s** — the figure
-  §11.1 uses to set the practised crossing.
+  `(BEAM_TRANSITION_TIME + BURN_DWELL_TIME) × POWER_DRAIN_RATE` = **13.5 units**
+  (was 14.8).
+- Efficient banishes from a full bar: `POWER_MAX / 13.5` = **7.4** (was 6.7).
+- **Shortest power-sustainable banish cycle:** 0.52 s draining plus
+  `13.5 / 22 = 0.61 s` recharging = **1.13 s per banish**, i.e. **0.88/s** with
+  perfect aim and no travel between targets (was 1.44 s and 0.69/s). This is the
+  quantity the §10.7 asymptote invariant is stated against, and it is the ceiling
+  the expert tier in §11.1 sits just under at 0.804/s. Real practised play lands
+  near **0.60/s**.
 
-**0.5/s is a capacity, not a rate.** It is the ceiling on how fast a player *can*
-service crawlers, and it is only ever reached when crawlers are arriving that fast.
-Below the practised crossing the player is supply-limited, not capacity-limited, and
-realised banishes track the spawn rate instead. §8 is derived from spawn rate for
-exactly that reason; using this figure there would overstate banish income across
-the whole early run.
+**These are capacities, not rates.** They are the ceiling on how fast a player
+*can* service crawlers, and are only reached when crawlers arrive that fast. Below
+the relevant crossing in §11.1 the player is supply-limited, not capacity-limited,
+and realised banishes track the spawn rate instead. §8 is derived from spawn rate
+for exactly that reason; using these figures there would overstate banish income
+across the whole early run.
 
 ### 11.4 The crawler cap — `docs/vision.md` §6 criterion 3
 
 Criterion 3 requires 60 fps measured **with the configured maximum concurrent
 crawler count on screen**, so the cap has to be both stated and honest.
 
-Modelled peak concurrency is low. In-flight count is roughly spawn rate × effective
-journey time. At the first-timer crossing (0.31/s, ~6 s journeys, stretched maybe
-1.5× by freezing) that is about **3**. In a deep practised run (0.65/s, ~4.5 s
-journeys, stretched up to 2× by a player who freezes rather than burns) it is about
-**6**, with transient peaks perhaps into double figures. `MAX_CRAWLERS = 16` sits
-roughly 2.5× above the deepest modelled peak: high enough that it never acts as a
-difficulty lever, low enough to bound the worst case for the overlapping alpha that
-`docs/concept.md` §9 flags as the performance risk.
+Modelled concurrency is `backlog + spawn rate × (mean seconds a serviced crawler is
+alive)`, both terms from §11.1. At the end of each modelled run — the moment
+concurrency peaks, because that is when the backlog is at `B`:
+
+| Tier | Backlog at death | In transit | **Peak concurrency** |
+| --- | --- | --- | --- |
+| First-timer (79 s) | 3 | 0.41/s × 6 s = 2.5 | **5.5** |
+| Practised (250 s) | 5 | 0.75/s × 4 s = 3.0 | **8.0** |
+| Expert (332 s) | 6 | 1.00/s × 3 s = 3.0 | **9.0** |
+
+`MAX_CRAWLERS = 16` sits about **1.8×** above the deepest modelled peak. GAM-17
+raised that peak from a modelled 6 to a modelled 9, so the headroom fell from 2.5×
+to 1.8× — still high enough that the cap never acts as a difficulty lever, and low
+enough to bound the worst case for the overlapping alpha that `docs/concept.md` §9
+flags as the performance risk. **The cap was deliberately not raised** (§11.1): it
+is a performance rail, `docs/vision.md` §6 criterion 3 is measured at whatever it
+is set to, and QA has not yet reported a real peak to calibrate against.
 
 **QA stress procedure.** The cap is most reachable late in a long run by freezing
 rather than burning — sweep wide continuously past 180 s and let crawlers
@@ -815,6 +1115,12 @@ no frame under 30 fps at the highest concurrency actually observed. **Record tha
 observed peak and send it back to me** — if the real peak is far under 16, the cap
 should come down so that the criterion measures something reachable, and that is a
 retune of a §10 value, not a code change.
+
+**The opposite now needs watching too.** If QA or the simulation shows the spawner
+*dropping* spawns (§5.3) before about 300 s, the cap has stopped being a rail and
+become a difficulty lever — it would be silently making the late game easier than
+§11.1 says it is. Report that as a balance defect, not a performance observation.
+Raising the cap is the fix, and it re-opens criterion 3 at the new number.
 
 ---
 
@@ -837,12 +1143,32 @@ the task's criteria against the sections above, so QA can derive cases directly.
 | 10 | No restart press is ever dropped | §2.3. Press `R` within 0.1 s of death; the run must restart when the lockout expires, not require a second press |
 | 11 | A run never opens with the beam already narrowing | §2.2. Start a run by clicking and keep the button held; confirm the beam stays `WIDE` and power does not drain until the button is released and pressed again. Repeat on restart with `R` held and with the mouse held. Then confirm §4.2's rearm still resumes under a held key — the edge trigger must not have leaked into it |
 
+### 12.1 The GAM-17 difficulty curve
+
+Added by the rebalance. Criteria 12–14 are checked by the deterministic
+simulation in [`docs/throughput-sim.md`](./throughput-sim.md) and need no build;
+15–17 are checked in a browser and 15 needs the GAM-15 cohort.
+
+| # | Criterion | How to verify |
+| --- | --- | --- |
+| 12 | The shipped config produces the §11.1 curve | Run the simulation against `src/config`. Spawn rate is 0.313/s at `t = 0`, 0.366/s at 45 s, 0.476/s at 120 s, 0.587/s at 180 s, 0.725/s at 240 s, and exactly `1 / SPAWN_INTERVAL_MIN` from `t = 332 s` onward, each within 2% |
+| 13 | There is no cliff | From the simulation: `d(spawn rate)/dt ≤ 0.0035 /s²` at every `t`, and **exactly 0** for every `t ≥ 332 s`. Crawler speed is constant for every `t ≥ 198 s`. Therefore no difficulty term in §5.4 changes after 332 s |
+| 14 | The asymptote is losing, and the cap is not a difficulty lever | From the simulation: the §10.7 asymptote invariant holds for the shipped config, and modelled peak concurrency stays below `MAX_CRAWLERS` for every `t` up to 400 s |
+| 15 | Run lengths land where §11.1 says | Ten first-time runs from the GAM-15 cohort: median inside 45–120 s, and inside 60–100 s if the model is right. One practised player exceeds 180 s. This is criterion 3 above, measured against the new curve |
+| 16 | Pressure is felt inside the first minute | Record a first-time run. At least three crawlers are alive simultaneously before `t = 50 s`, and at least 12 crawlers have spawned by `t = 45 s`. §11.1 models 3 on screen at 47 s and 15 spawns by 45 s |
+| 17 | The pillars still hold at the new values | **Readability** (`docs/vision.md` §6 criterion 4): no crawler speed value changed, so §11.2 holds verbatim — re-check the joint bound as a product and confirm the worst approach is still ≥ 1.5 s. **Core loop** (`docs/vision.md` §3, the non-veto check): hold a wide beam on a crawler for 30 s at the new `POWER_RECHARGE_RATE` and confirm it stays frozen, does not die, and that power does not fall and is not consumed by freezing. Then focus and confirm it dies after the new `BURN_DWELL_TIME` with a visible drain |
+
 ---
 
 ## 13. Open items this document does not close
 
 - **Difficulty-curve shape** (`docs/vision.md` §8.1) — MVP ships the continuous
-  ramp in §5.4. Discrete waves with lulls remain open for a later milestone.
+  ramp in §5.4, retuned by GAM-17. Discrete waves with lulls remain open for a
+  later milestone: GAM-17 changed the curve's *values*, not its shape, and
+  deliberately did not close the ramp-versus-waves question.
+- **The backlog tolerance `B`** (§11.1) — the one calibrated input to the run-length
+  model, currently 3 / 5 / 6 on the cohort's first measurement. GAM-15 refits it,
+  and the recalibration rule at the end of §11.1 says what to do with the result.
 - **Score precision bonus** (`docs/vision.md` §8.2) — stays out; see §8.
 - **Crawler variety** (`docs/vision.md` §8.3) — out of MVP scope entirely.
 - **Audio beyond confirmation** (`docs/vision.md` §8.4) — §5.2 and §4.2 name the

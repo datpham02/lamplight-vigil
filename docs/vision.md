@@ -230,6 +230,10 @@ Recorded so they are not reopened. All three are settled in `docs/concept.md`:
 1. **Difficulty curve.** The wave timer exists in MVP scope, but its shape is
    open: continuous ramp, or discrete waves with lulls? Pillar 1 says pressure
    comes from the cost of the width choice, not from new systems.
+   **Still open after GAM-17.** That rebalance retuned the continuous ramp's
+   *values* — a busier opening, a shallower slope, and a floor that bounds how
+   hard the game ever gets (`docs/design.md` §5.4 and §11.1) — and deliberately
+   did not touch the ramp-versus-waves question.
 2. **Score formula weighting.** Score is time survived plus crawlers banished
    (§6.6); the relative weight is unset, as is whether a burn completed at the
    last moment before contact should pay a precision bonus.
