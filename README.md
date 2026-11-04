@@ -21,9 +21,15 @@ The dev server prints a local URL; open it in a desktop browser.
 
 ```bash
 npm run typecheck   # tsc --noEmit, strict
+npm run test        # unit tests for the core-loop rules (node:test, no browser)
 npm run build       # typecheck + production bundle into dist/
 npm run preview     # serve the built dist/ locally
 ```
+
+The tests cover the parts of the game that are pure rules — the beam state
+machine and power economy, crawler freeze/burn resolution, spawn placement and
+the ramps, and scoring. Those modules import no Phaser, so they can be stepped at
+a fixed delta instead of being played by hand.
 
 ## Layout
 
@@ -44,11 +50,26 @@ Modules talk to each other over the scene event bus — see
 [`src/scenes/events.ts`](./src/scenes/events.ts) — not by holding references to
 each other's classes.
 
+## How to play
+
+Aim with the mouse. Hold **Shift** or the **left mouse button** to narrow the
+beam into a focused burn; release to widen it. A wide beam freezes every crawler
+it touches but kills none; a focused beam burns one away after a short dwell and
+drains your power. Power recharges while the beam is wide. Running out of power
+does not end the run — it only stops you burning until the meter recovers.
+
+A crawler reaching the lamp ends the run. Press **R** to go again.
+
 ## What is implemented so far
 
-The lamp and the wide beam, rendering and aim only: the lamp sits at the centre
-and the cone follows the mouse. Focusing, the power meter, crawlers, scoring and
-the HUD are later tasks in the "Playable Vigil" milestone.
+The whole core loop: beam aiming and focus, the power meter, crawler spawning and
+movement, freeze/burn resolution, the run state machine, game over and scoring,
+with every tuning value read from `src/config` per `docs/design.md` §10.
+
+Still to come in the "Playable Vigil" milestone: the HUD readouts and the title
+and game-over overlays, and the game-feel pass (glow, shake, sound hooks). Until
+the HUD lands, power, score and best score are emitted on the scene event bus but
+are not drawn — the loop is playable, but it does not yet tell you your numbers.
 
 ## For agents
 
@@ -64,6 +85,7 @@ An asset with no entry in this table is a blocker, not a detail to fix later.
 | ----- | ---- | ---------- | ------- |
 | `lamp-glow` | Radial-gradient halo, generated in code at boot ([`src/beam/Lamp.ts`](./src/beam/Lamp.ts)) | Original, written for this game | Same as the repository |
 | Lamp core, beam cone | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
+| Crawlers, ambient wash | Phaser shape primitives drawn in code | Original, written for this game | Same as the repository |
 
 No binary or third-party art, audio or font files are in the repository. All
 placeholder programmer art is generated from code once at boot.
