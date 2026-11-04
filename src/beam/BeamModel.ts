@@ -10,6 +10,10 @@ import {
   BEAM_FOCUS_ALPHA,
   BEAM_FOCUS_HALF_ANGLE_RAD,
   BEAM_FOCUS_RANGE,
+  BEAM_GLOW_ALPHA_FOCUS,
+  BEAM_GLOW_ALPHA_WIDE,
+  BEAM_GLOW_SCALE_FOCUS,
+  BEAM_GLOW_SCALE_WIDE,
   BEAM_REST_ANGLE_RAD,
   BEAM_TRANSITION_TIME,
   BEAM_WIDE_ALPHA,
@@ -105,6 +109,26 @@ export class BeamModel {
   /** Current fill alpha. Focused is brighter as well as narrower (§3.2). */
   public get alpha(): number {
     return lerp(BEAM_WIDE_ALPHA, BEAM_FOCUS_ALPHA, this.widthValue);
+  }
+
+  /**
+   * Alpha of the bloom baked at the beam's mouth. Like `alpha`, this is a
+   * rendering quantity derived from the width parameter and nothing else, which
+   * is why it lives with the other width-driven derivations rather than in the
+   * renderer: it moves continuously with the width and can be asserted on
+   * without a canvas.
+   */
+  public get glowAlpha(): number {
+    return lerp(BEAM_GLOW_ALPHA_WIDE, BEAM_GLOW_ALPHA_FOCUS, this.widthValue);
+  }
+
+  /**
+   * Scale of that bloom. Focusing pulls the light into a smaller, brighter
+   * source; widening spreads it back out. Purely cosmetic — no part of §3.2's
+   * geometry test reads it, so the glow can never disagree with what is lit.
+   */
+  public get glowScale(): number {
+    return lerp(BEAM_GLOW_SCALE_WIDE, BEAM_GLOW_SCALE_FOCUS, this.widthValue);
   }
 
   /**

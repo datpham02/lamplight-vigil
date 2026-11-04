@@ -9,11 +9,31 @@ import {
   BEAM_COLOR,
   BEAM_CONE_LAYERS,
   BEAM_DEPTH,
+  BEAM_GLOW_COLOR,
+  BEAM_GLOW_DEPTH,
+  BEAM_GLOW_MID_ALPHA_SCALE,
+  BEAM_GLOW_MID_STOP,
+  BEAM_GLOW_TEXTURE_KEY,
+  BEAM_GLOW_TEXTURE_RADIUS,
+  BEAM_HALO_LAYERS,
   LAMP_X,
   LAMP_Y,
 } from '../config/index';
 import { VIGIL_EVENTS, type BeamAimedPayload, type BeamStatePayload } from '../scenes/events';
 import { BeamModel } from './BeamModel';
+import { ensureRadialGlowTexture, type RadialGlowSpec } from './glowTexture';
+
+/** The beam's bloom, baked once at boot. See `glowTexture.ts`. */
+const BEAM_GLOW: RadialGlowSpec = {
+  key: BEAM_GLOW_TEXTURE_KEY,
+  radius: BEAM_GLOW_TEXTURE_RADIUS,
+  // The image's own alpha carries the width-driven brightness, so the texture is
+  // baked at full strength and scaled by `BeamModel.glowAlpha` at draw time.
+  color: BEAM_GLOW_COLOR,
+  alpha: 1,
+  midStop: BEAM_GLOW_MID_STOP,
+  midAlphaScale: BEAM_GLOW_MID_ALPHA_SCALE,
+};
 
 /**
  * The player's light: a cone cast from the lamp towards the mouse, narrowing to
@@ -28,6 +48,9 @@ export class Beam {
   private readonly scene: Phaser.Scene;
   private readonly cone: Phaser.GameObjects.Graphics;
   private readonly model = new BeamModel();
+
+  /** The bloom at the beam's mouth, or null if the renderer refused the bake. */
+  private readonly glow: Phaser.GameObjects.Image | null;
 
   /**
    * Phaser reports an active pointer at (0, 0) until the mouse first moves over
@@ -46,6 +69,11 @@ export class Beam {
     this.scene = scene;
     this.cone = scene.add.graphics({ x: LAMP_X, y: LAMP_Y }).setDepth(BEAM_DEPTH);
     this.cone.setRotation(this.model.angleRad);
+
+    this.glow = ensureRadialGlowTexture(scene, BEAM_GLOW)
+      ? scene.add.image(LAMP_X, LAMP_Y, BEAM_GLOW_TEXTURE_KEY).setDepth(BEAM_GLOW_DEPTH)
+      : null;
+
     this.rebuildCone();
 
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, this.onPointerMove, this);
@@ -150,6 +178,10 @@ export class Beam {
    * stays a rotation. Only called when the width parameter has actually moved —
    * at a settled width, and while the player is only re-aiming, nothing is
    * rebuilt (performance mitigation, docs/concept.md §9).
+   *
+   * The halo goes into the same Graphics, under the cone layers, so the glow
+   * costs no extra display-list entry and is rebuilt on exactly the frames the
+   * cone is. The bloom is a baked texture and only has its alpha and scale set.
    */
   private rebuildCone(): void {
     const width = this.model.width;
@@ -158,10 +190,26 @@ export class Beam {
     const alpha = this.model.alpha;
 
     this.cone.clear();
+
+    // Underneath: the halo, spilling past the cone edge. Faint by construction —
+    // see BEAM_HALO_LAYERS on why it must never be mistaken for the beam.
+    for (const layer of BEAM_HALO_LAYERS) {
+      const haloHalfAngle = halfAngle * layer.angleScale;
+      this.cone.fillStyle(BEAM_GLOW_COLOR, alpha * layer.alphaScale);
+      this.cone.slice(0, 0, range * layer.lengthScale, -haloHalfAngle, haloHalfAngle, false);
+      this.cone.fillPath();
+    }
+
+    // On top: the beam itself. Its outer edge is where freezing starts and stops.
     for (const layer of BEAM_CONE_LAYERS) {
       this.cone.fillStyle(BEAM_COLOR, alpha * layer.alphaScale);
       this.cone.slice(0, 0, range * layer.lengthScale, -halfAngle, halfAngle, false);
       this.cone.fillPath();
+    }
+
+    if (this.glow !== null) {
+      this.glow.setAlpha(this.model.glowAlpha);
+      this.glow.setScale(this.model.glowScale);
     }
 
     this.renderedWidth = width;
