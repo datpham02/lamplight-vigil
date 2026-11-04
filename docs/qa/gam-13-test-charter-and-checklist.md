@@ -143,7 +143,7 @@ Manual browser/cohort defects cannot be assessed until pending steps complete.
 
 ## QA verdict
 
-`changes_requested`
+`changes_requested` for the original full scope; superseded by the Board split below, under which the automated scope passes.
 
 Reason: GAM-13 acceptance requires executed evidence on desktop Chrome/Firefox/Edge and cohort-based criteria (5, 6, plus run-length measurements). This run validates automated checks and clean-clone workflow, but does not yet satisfy the manual browser + cohort gate required to close the milestone.
 
