@@ -3,6 +3,13 @@ Source of truth. This file is the approved GAM-1 game concept, copied verbatim
 from the Board's approval comment on GAM-5. Do not edit it to record new
 decisions: later decisions belong in docs/vision.md, docs/design.md or a new
 issue. Changing this file means the Board changed the concept.
+
+One exception, and only this one: where a later Board decision makes a sentence
+here false on its face, a dated ANNOTATION block may be added immediately after
+it, pointing at the document that now holds the boundary. An annotation never
+edits, deletes or restates the GAM-1 text it follows, and it is always visibly
+marked as not part of that text. Adding one requires a Board decision to cite.
+Current annotations: section 4 (GAM-16, 2026-11-04).
 -->
 
 ## Game Concept for Board approval
@@ -20,6 +27,17 @@ You are the last lamp in a dark hollow, and the only thing you can move is your 
 
 ### 4. Genre and target platform
 Single-screen 2D arcade survival, top-down, score-attack. Desktop web browser (Chrome, Firefox, Edge), mouse and keyboard. Phaser 3 with TypeScript, built with Vite and npm. Static output, no backend, no accounts, no online features.
+
+> **ANNOTATION — 2026-11-04. Not part of the GAM-1 text above.**
+> The sentence *"Static output, no backend, no accounts, no online features"* no
+> longer describes the project's scope. The Board approved the "Online Vigil"
+> amendment (GAM-16) on 2026-11-04, moving a hosted backend, an anonymous
+> online identity, a weekly leaderboard and public static hosting **in**. The
+> GAM-1 sentence is left intact as the record of what the concept said; the
+> current boundary is `docs/vision.md` **§5b — Milestone boundary, "Online
+> Vigil"**. Telemetry, analytics, ads, payments and store publishing remain out.
+> One decision from that amendment, **D4 — provider and hosting — is still
+> pending with the Board**, so no provider is named anywhere.
 
 ### 5. Three design pillars
 1. **Light is the only verb.** Every mechanic is a way of aiming or shaping the beam. No walking, no weapons, no inventory, no upgrade shop. If a feature cannot be expressed as something you do with light, it does not belong in this game.

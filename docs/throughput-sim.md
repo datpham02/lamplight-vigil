@@ -314,3 +314,26 @@ break a pillar as easily as a code change can.
 4. **Report the numbers back.** Put the script's full summary output in the PR. If
    any Group A number is outside tolerance, say so on the task rather than
    adjusting the expectation; the discrepancy is a design question and it is mine.
+
+---
+
+## 10. The weekly modifier sweep (Online Vigil)
+
+`docs/design.md` §14.9 extends this script with `npm run sim -- --modifiers`,
+which iterates every cell of the weekly modifier table in §14.5 and asserts
+**Group B per cell**, plus three additional assertions (W1–W3) and a tightened
+B9 band. Plain `npm run sim` keeps the behaviour specified above, unchanged.
+
+Two notes that belong here rather than there:
+
+- **Group A is not run per cell.** It reproduces §11.1 at the shipped config and
+  is expected to fail under a modifier by design.
+- It needs a **config-override surface** through `spawnInterval`, `rampedSpeed`
+  and the model, which §2's "every balance value is imported from
+  `src/config/index.ts`" currently rules out at module level. The rule it is
+  protecting still holds: the sweep overrides the shipped values through one
+  explicit parameter, it never re-declares them, and at the base config the output
+  must be byte-identical to today's.
+
+Read `docs/design.md` §14.9 before implementing it; this is a pointer, not the
+specification.
