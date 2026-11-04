@@ -8,24 +8,18 @@
 
 import {
   CRAWLER_RADIUS,
-  CRAWLER_SPEED_BASE,
-  CRAWLER_SPEED_JITTER,
-  CRAWLER_SPEED_MAX,
-  CRAWLER_SPEED_RAMP_PER_SECOND,
   LAMP_X,
   LAMP_Y,
   MAX_CRAWLERS,
   RENDER_HEIGHT,
   RENDER_WIDTH,
+  SHIPPED_RUN_CONFIG,
   SPAWN_CORNER_INSET,
   SPAWN_EDGES,
-  SPAWN_EDGE_WEIGHTS,
   SPAWN_FIRST_DELAY,
-  SPAWN_INTERVAL_DECAY_PER_SECOND,
-  SPAWN_INTERVAL_MIN,
-  SPAWN_INTERVAL_START,
   SPAWN_MIN_SEPARATION_RAD,
   SPAWN_PLACEMENT_ATTEMPTS,
+  type RunConfig,
   type SpawnEdge,
 } from '../config/index';
 import { Crawler } from './Crawler';
@@ -44,6 +38,33 @@ export interface BeamLight {
 export interface Point {
   readonly x: number;
   readonly y: number;
+}
+
+/**
+ * The dice the field rolls, and nothing more.
+ *
+ * `Math.random` satisfies this with no `rewind`, which is the Free Play path in
+ * `docs/design.md` §14.8: unseeded, so a restart is a different hollow. The
+ * seeded source `src/weekly` builds for a weekly run carries `rewind`, so a
+ * restart replays the week's sequence instead of continuing its stream.
+ *
+ * Declared here rather than imported for the same reason {@link BeamLight} is:
+ * `src/weekly` satisfies it structurally, so neither module has to import the
+ * other.
+ */
+export interface RunRandom {
+  (): number;
+  /** Rewind to the first draw. Absent on an unseeded source. */
+  readonly rewind?: () => void;
+}
+
+/**
+ * The two things a run is played with. `src/weekly`'s `RunSetup` satisfies it
+ * structurally for both modes, and carries the resolved week the HUD names.
+ */
+export interface FieldRun {
+  readonly random: RunRandom;
+  readonly config: RunConfig;
 }
 
 /**
@@ -66,19 +87,29 @@ export interface CrawlerFieldStep {
   readonly lampHit: Point | null;
 }
 
-/** §5.4 — linear speed ramp, capped. Jitter is applied per crawler afterwards. */
-export function rampedSpeed(elapsedSeconds: number): number {
+/**
+ * §5.4 — linear speed ramp, capped. Jitter is applied per crawler afterwards.
+ *
+ * The shape is the one in §5.4 and this task retunes nothing. `config` exists so
+ * a weekly modifier and `npm run sim -- --modifiers` can evaluate the curve at
+ * something other than the shipped values (§14.9); it defaults to the shipped
+ * config, so every existing caller and the plain `npm run sim` are unchanged.
+ */
+export function rampedSpeed(elapsedSeconds: number, config: RunConfig = SHIPPED_RUN_CONFIG): number {
   return Math.min(
-    CRAWLER_SPEED_MAX,
-    CRAWLER_SPEED_BASE * (1 + CRAWLER_SPEED_RAMP_PER_SECOND * elapsedSeconds),
+    config.CRAWLER_SPEED_MAX,
+    config.CRAWLER_SPEED_BASE * (1 + config.CRAWLER_SPEED_RAMP_PER_SECOND * elapsedSeconds),
   );
 }
 
-/** §5.4 — geometric decay of the spawn interval, floored. */
-export function spawnInterval(elapsedSeconds: number): number {
+/** §5.4 — geometric decay of the spawn interval, floored. See {@link rampedSpeed}. */
+export function spawnInterval(
+  elapsedSeconds: number,
+  config: RunConfig = SHIPPED_RUN_CONFIG,
+): number {
   return Math.max(
-    SPAWN_INTERVAL_MIN,
-    SPAWN_INTERVAL_START * SPAWN_INTERVAL_DECAY_PER_SECOND ** elapsedSeconds,
+    config.SPAWN_INTERVAL_MIN,
+    config.SPAWN_INTERVAL_START * config.SPAWN_INTERVAL_DECAY_PER_SECOND ** elapsedSeconds,
   );
 }
 
@@ -93,20 +124,29 @@ function angularDistance(a: number, b: number): number {
 /**
  * Every living crawler, and the spawner that feeds them in.
  *
- * The random source is injectable so a test can drive placement deterministically;
- * the game uses Math.random.
+ * Both of its inputs are injected, and the defaults are Free Play:
+ *
+ * - **the dice.** `Math.random` is the unseeded path §14.8 keeps for Free Play;
+ *   a test, or a weekly run, hands in a seeded {@link RunRandom} instead. Given
+ *   the same seed and the same `step` calls, the spawn sequence is identical —
+ *   same edges, same positions, same jitter — which is what `docs/vision.md`
+ *   §5b.3 B5 means by two clients seeing the same week.
+ * - **the numbers.** `config` is the §14.9 override surface. At
+ *   `SHIPPED_RUN_CONFIG` the field behaves exactly as it did before OV-2.
  */
 export class CrawlerField {
   private readonly crawlers: Crawler[] = [];
-  private readonly random: () => number;
+  private random: RunRandom;
+  private config: RunConfig;
   private readonly banishedThisStep: Point[] = [];
   private readonly frozeThisStep: Point[] = [];
 
   /** Seconds until the next spawn. Reset to SPAWN_FIRST_DELAY on every run. */
   private nextSpawnIn = SPAWN_FIRST_DELAY;
 
-  public constructor(random: () => number = Math.random) {
+  public constructor(random: RunRandom = Math.random, config: RunConfig = SHIPPED_RUN_CONFIG) {
     this.random = random;
+    this.config = config;
   }
 
   /** Every crawler currently in play, for the renderer. */
@@ -129,8 +169,26 @@ export class CrawlerField {
     return Math.max(0, this.nextSpawnIn);
   }
 
-  /** §2.2 — per-run reset: every crawler destroyed, the spawn timer rewound. */
-  public reset(): void {
+  /**
+   * §2.2 — per-run reset: every crawler destroyed, the spawn timer rewound.
+   *
+   * `run` is the mode and week the *next* run is played under. §14.2 resolves
+   * the week once, at the transition to PLAYING, and holds it for the whole
+   * run; a Phaser scene reuses its instance across restarts, so this — not the
+   * constructor — is where a run's numbers and dice arrive. Omit it to keep the
+   * current ones, which is what every unseeded caller wants.
+   *
+   * A seeded source is rewound here, so `R` from game-over replays the week
+   * rather than continuing its stream. An unseeded one has nothing to rewind,
+   * and Free Play's next hollow is a different one.
+   */
+  public reset(run?: FieldRun): void {
+    if (run !== undefined) {
+      this.random = run.random;
+      this.config = run.config;
+    }
+
+    this.random.rewind?.();
     this.crawlers.length = 0;
     this.banishedThisStep.length = 0;
     this.frozeThisStep.length = 0;
@@ -152,11 +210,11 @@ export class CrawlerField {
     // remainder carries so the spawner does not drift against the frame rate.
     this.nextSpawnIn -= deltaSeconds;
     while (this.nextSpawnIn <= 0) {
-      this.nextSpawnIn += spawnInterval(elapsedSeconds);
+      this.nextSpawnIn += spawnInterval(elapsedSeconds, this.config);
       this.spawn();
     }
 
-    const speed = rampedSpeed(elapsedSeconds);
+    const speed = rampedSpeed(elapsedSeconds, this.config);
     let lampHit: Point | null = null;
 
     // Backwards, so banishing a crawler does not skip the next one.
@@ -210,7 +268,7 @@ export class CrawlerField {
       candidate = this.placeOn(edge);
     }
 
-    const factor = 1 + (this.random() * 2 - 1) * CRAWLER_SPEED_JITTER;
+    const factor = 1 + (this.random() * 2 - 1) * this.config.CRAWLER_SPEED_JITTER;
     this.crawlers.push(new Crawler(candidate.x, candidate.y, factor));
   }
 
@@ -220,7 +278,7 @@ export class CrawlerField {
     let cumulative = 0;
 
     for (const edge of SPAWN_EDGES) {
-      cumulative += SPAWN_EDGE_WEIGHTS[edge];
+      cumulative += this.config.SPAWN_EDGE_WEIGHTS[edge];
       if (roll < cumulative) {
         return edge;
       }
