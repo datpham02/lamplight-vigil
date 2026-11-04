@@ -32,6 +32,7 @@ import {
   SHAKE_LAMP_HIT_DURATION_MS,
   SHAKE_LAMP_HIT_INTENSITY,
 } from '../config/index';
+import type { HostContext } from '../host/hostContext';
 import { VIGIL_EVENTS, type PointPayload } from './events';
 import { VigilAudio } from './VigilAudio';
 
@@ -90,10 +91,15 @@ export class VigilFeedback {
    */
   private readonly bursts: Burst[] = [];
 
-  public constructor(scene: Phaser.Scene) {
+  /**
+   * @param host The mount, passed through to the audio layer: it is the mount
+   * that knows when the player first touched the game, which is the only moment
+   * an AudioContext may be created.
+   */
+  public constructor(scene: Phaser.Scene, host: HostContext | null) {
     this.scene = scene;
     this.graphics = scene.add.graphics().setDepth(FEEDBACK_DEPTH);
-    this.audio = new VigilAudio(scene);
+    this.audio = new VigilAudio(host);
 
     for (let i = 0; i < FEEDBACK_BURST_MAX; i += 1) {
       this.bursts.push({ x: 0, y: 0, left: 0, style: BANISH_BURST });
