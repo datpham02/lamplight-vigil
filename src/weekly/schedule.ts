@@ -7,12 +7,12 @@
 // stored history, no chain to replay, no `localStorage`. A fresh install and a
 // two-year-old one resolve the same week identically.
 
+import { WEEKLY_SEED_NAMESPACE } from '../config/index';
 import {
   WEEKLY_MODIFIERS,
-  WEEKLY_SEED_NAMESPACE,
+  weeklyCellLabel,
   type WeeklyModifier,
-  type WeeklyModifierValue,
-} from '../config/index';
+} from '../config/weeklyModifiers';
 import { fnv1a32, mulberry32 } from './seed';
 import { weekIndex, weekKey } from './weekKey';
 
@@ -93,7 +93,15 @@ export interface ResolvedWeek {
   /** §14.2 — whole weeks since the epoch. */
   readonly index: number;
   readonly entry: WeeklyModifier;
-  readonly value: WeeklyModifierValue;
+  /**
+   * Which of the entry's values this week drew, as §14.4 addresses one:
+   * `entry.values[fnv1a32(...) % entry.values.length]`. The pair
+   * (`entry.id`, `valueIndex`) is the cell's identity, and is what a submission
+   * records so that a later table edit cannot re-interpret a played score.
+   */
+  readonly valueIndex: number;
+  /** `clinging-dark x1.30` — the cell in one string, for display and logs. */
+  readonly label: string;
 }
 
 /**
@@ -117,13 +125,14 @@ export function resolveWeek(key: string, index: number): ResolvedWeek {
     throw new Error(`the block schedule named an entry that is not in the table: ${String(id)}`);
   }
 
-  const value = entry.values[fnv1a32(`${WEEKLY_SEED_NAMESPACE}|${key}|${entry.id}|value`) % entry.values.length];
-
-  if (value === undefined) {
+  if (entry.values.length === 0) {
     throw new Error(`weekly modifier "${entry.id}" declares no values`);
   }
 
-  return { key, index, entry, value };
+  const valueIndex =
+    fnv1a32(`${WEEKLY_SEED_NAMESPACE}|${key}|${entry.id}|value`) % entry.values.length;
+
+  return { key, index, entry, valueIndex, label: weeklyCellLabel(entry, valueIndex) };
 }
 
 /** {@link resolveWeek} for an instant. The only caller that needs a clock. */

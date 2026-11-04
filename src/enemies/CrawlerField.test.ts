@@ -22,7 +22,7 @@ import {
   SPAWN_INTERVAL_MIN,
   SPAWN_INTERVAL_START,
 } from '../config/index';
-import { SHIPPED_RUN_CONFIG } from '../config/index';
+import { BASE_TUNING } from '../config/tuning';
 import { freePlayRun, seededUnitRandom, weeklyRunAt } from '../weekly/index';
 import { CrawlerField, rampedSpeed, spawnInterval, type BeamLight } from './CrawlerField';
 
@@ -403,8 +403,8 @@ describe('the seeded run (design.md §14, GAM-38)', () => {
     // `src/scenes` has always constructed, and what §14.8 keeps for Free Play.
     run(field, 30, FLOODLIT);
     assert.ok(field.all.length > 0);
-    assert.equal(spawnInterval(42), spawnInterval(42, SHIPPED_RUN_CONFIG));
-    assert.equal(rampedSpeed(42), rampedSpeed(42, SHIPPED_RUN_CONFIG));
+    assert.equal(spawnInterval(42), spawnInterval(42, BASE_TUNING));
+    assert.equal(rampedSpeed(42), rampedSpeed(42, BASE_TUNING));
   });
 
   it('takes a week at reset, because a scene instance outlives a run (§2.2)', () => {
@@ -433,15 +433,15 @@ describe('the seeded run (design.md §14, GAM-38)', () => {
     assert.equal(quiet.week?.entry.id, 'crowded-threshold');
     assert.ok(Math.abs(quiet.config.SPAWN_INTERVAL_START - 3.392) < 1e-9);
     assert.ok(
-      spawnInterval(0, quiet.config) > spawnInterval(0, SHIPPED_RUN_CONFIG),
+      spawnInterval(0, quiet.config) > spawnInterval(0, BASE_TUNING),
       'they come later at first',
     );
     assert.equal(spawnInterval(0, quiet.config), quiet.config.SPAWN_INTERVAL_START);
 
     // The floor and the slope are not in the table, so the run still bottoms
     // out in the same place and at the same rate.
-    assert.equal(spawnInterval(10_000, quiet.config), SHIPPED_RUN_CONFIG.SPAWN_INTERVAL_MIN);
-    assert.equal(rampedSpeed(10_000, quiet.config), SHIPPED_RUN_CONFIG.CRAWLER_SPEED_MAX);
+    assert.equal(spawnInterval(10_000, quiet.config), BASE_TUNING.SPAWN_INTERVAL_MIN);
+    assert.equal(rampedSpeed(10_000, quiet.config), BASE_TUNING.CRAWLER_SPEED_MAX);
   });
 
   it('keeps the §5.4 shapes under every weekly config, which is what §14.9 B4 rests on', () => {

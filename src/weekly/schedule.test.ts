@@ -9,80 +9,28 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { WEEKLY_MODIFIERS, WEEKLY_MODIFIER_SAFE_RANGES } from '../config/index';
+import { WEEKLY_EPOCH_UTC_MS } from '../config/index';
+import { WEEKLY_MODIFIERS } from '../config/weeklyModifiers';
 import { BLOCK_LENGTH, blockOrder, rawBlockOrder, resolveWeek } from './schedule';
 import { weekIndex, weekKey } from './weekKey';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-const EPOCH = Date.UTC(2026, 0, 5);
+
+/**
+ * The epoch, which §14.2 states in the reset frame. Taken from `src/config`
+ * rather than written out again: criterion 36 allows the week boundary exactly
+ * one home, and a second `Date.UTC(2026, 0, 5)` here would be a copy of it that
+ * stops moving when the real one does.
+ */
+const EPOCH = WEEKLY_EPOCH_UTC_MS;
 
 const ALL_IDS = WEEKLY_MODIFIERS.map((modifier) => modifier.id).sort();
 
-describe('the closed table (design.md §14.5)', () => {
-  it('is eight entries and fifteen cells', () => {
-    const cells = WEEKLY_MODIFIERS.reduce((total, entry) => total + entry.values.length, 0);
-
-    assert.equal(WEEKLY_MODIFIERS.length, 8, '§14.5 declares eight entries');
-    assert.equal(cells, 15, '§14.5 declares fifteen cells');
-  });
-
-  it('gives every entry a unique id and at least one value (§14.1 rules 1–3)', () => {
-    assert.equal(new Set(ALL_IDS).size, ALL_IDS.length, 'ids must be unique: they seed the schedule');
-
-    for (const entry of WEEKLY_MODIFIERS) {
-      assert.ok(entry.values.length >= 1, `${entry.id} declares no values`);
-      assert.equal(
-        new Set(entry.values.map((value) => value.id)).size,
-        entry.values.length,
-        `${entry.id} repeats a value id`,
-      );
-    }
-  });
-
-  it('touches exactly one constant per entry, from the §14.5 list (§14.1 rule 2)', () => {
-    const allowed = new Set([...Object.keys(WEEKLY_MODIFIER_SAFE_RANGES), 'SPAWN_EDGE_WEIGHTS']);
-
-    for (const entry of WEEKLY_MODIFIERS) {
-      assert.ok(allowed.has(entry.constant), `${entry.id} names ${entry.constant}, not on the list`);
-    }
-    assert.equal(allowed.size, 7, '§14.5 names seven constants');
-  });
-
-  it('keeps every value kind matched to its constant', () => {
-    for (const entry of WEEKLY_MODIFIERS) {
-      for (const value of entry.values) {
-        if (entry.constant === 'SPAWN_EDGE_WEIGHTS') {
-          assert.equal(value.kind, 'edge-weights', `${entry.id} ${value.id}`);
-        } else {
-          assert.equal(value.kind, 'multiplier', `${entry.id} ${value.id}`);
-        }
-      }
-    }
-  });
-
-  it('keeps both one-axis overrides summing to 1 (B7)', () => {
-    const entry = WEEKLY_MODIFIERS.find((modifier) => modifier.id === 'one-axis');
-    assert.ok(entry !== undefined);
-
-    for (const value of entry.values) {
-      assert.equal(value.kind, 'edge-weights');
-      if (value.kind !== 'edge-weights') {
-        continue;
-      }
-      const sum = value.weights.top + value.weights.bottom + value.weights.left + value.weights.right;
-      assert.ok(Math.abs(sum - 1) < 1e-9, `${value.id} sums to ${sum}`);
-    }
-  });
-
-  it('gives every value the plain words criterion 27 puts on screen', () => {
-    for (const entry of WEEKLY_MODIFIERS) {
-      for (const value of entry.values) {
-        assert.ok(value.headline.length > 0, `${entry.id} ${value.id} has no headline`);
-        assert.ok(value.effect.length > 0, `${entry.id} ${value.id} has no effect line`);
-      }
-    }
-  });
-});
+// The closed table itself — eight entries, fifteen cells, one constant each,
+// every resolved value inside its §10 band — is `src/config/weeklyModifiers.ts`'s
+// and is swept cell by cell in `tools/throughput-sim.test.ts` (OV-3). What is
+// tested here is only what §14.4 adds on top of it: which entry a given week
+// gets, and the two properties criterion 21 demands of that choice.
 
 describe('the block schedule (design.md §14.4, criterion 21)', () => {
   it('(b) is a permutation of the whole table at every one of 10 000 blocks', () => {
@@ -166,30 +114,57 @@ describe('the schedule over weeks (design.md §14.4, criterion 21a)', () => {
 });
 
 describe('the published schedule vector (design.md §14.4, criterion 22)', () => {
-  /** §14.4 — "the first ten weeks from the Board's approval date". */
+  /**
+   * §14.4 — "the first ten weeks from the Board's approval date", as re-derived
+   * at UTC+7 by GAM-43. `begins` is the "Begins (UTC)" column: the real instant
+   * the week opens at, which is Monday 00:00 in the reset frame and therefore
+   * the Sunday evening before on a UTC clock.
+   *
+   * §14.4 is explicit that the entry and value columns did **not** move when the
+   * offset did, and says why: the schedule reads only the week key and the week
+   * index, and both are computed wholly inside the reset frame against an epoch
+   * stated in that same frame. So this vector is two claims at once — the ten
+   * cells are unchanged, and they begin seven hours earlier on a UTC clock than
+   * the withdrawn UTC draft said.
+   */
   const VECTOR: readonly {
     readonly key: string;
+    readonly begins: string;
     readonly index: number;
     readonly entry: string;
     readonly value: string;
   }[] = [
-    { key: '2026-W45', index: 43, entry: 'clinging-dark', value: 'x1.30' },
-    { key: '2026-W46', index: 44, entry: 'plain', value: 'x1.00' },
-    { key: '2026-W47', index: 45, entry: 'one-axis', value: 'over-the-top' },
-    { key: '2026-W48', index: 46, entry: 'restless-hollow', value: 'x1.10' },
-    { key: '2026-W49', index: 47, entry: 'hungry-flame', value: 'x1.10' },
-    { key: '2026-W50', index: 48, entry: 'narrow-lantern', value: 'x1.15' },
-    { key: '2026-W51', index: 49, entry: 'clinging-dark', value: 'x1.15' },
-    { key: '2026-W52', index: 50, entry: 'crowded-threshold', value: 'x1.06' },
-    { key: '2026-W53', index: 51, entry: 'hungry-flame', value: 'x1.20' },
-    { key: '2027-W01', index: 52, entry: 'one-axis', value: 'long-dark' },
+    { key: '2026-W45', begins: '2026-11-01T17:00:00Z', index: 43, entry: 'clinging-dark', value: 'x1.30' },
+    { key: '2026-W46', begins: '2026-11-08T17:00:00Z', index: 44, entry: 'plain', value: 'x1.00' },
+    { key: '2026-W47', begins: '2026-11-15T17:00:00Z', index: 45, entry: 'one-axis', value: 'over-the-top' },
+    { key: '2026-W48', begins: '2026-11-22T17:00:00Z', index: 46, entry: 'restless-hollow', value: 'x1.10' },
+    { key: '2026-W49', begins: '2026-11-29T17:00:00Z', index: 47, entry: 'hungry-flame', value: 'x1.10' },
+    { key: '2026-W50', begins: '2026-12-06T17:00:00Z', index: 48, entry: 'narrow-lantern', value: 'x1.15' },
+    { key: '2026-W51', begins: '2026-12-13T17:00:00Z', index: 49, entry: 'clinging-dark', value: 'x1.15' },
+    { key: '2026-W52', begins: '2026-12-20T17:00:00Z', index: 50, entry: 'crowded-threshold', value: 'x1.06' },
+    { key: '2026-W53', begins: '2026-12-27T17:00:00Z', index: 51, entry: 'hungry-flame', value: 'x1.20' },
+    { key: '2027-W01', begins: '2027-01-03T17:00:00Z', index: 52, entry: 'one-axis', value: 'long-dark' },
   ];
 
   it('resolves all ten weeks to exactly the published entry and value', () => {
     for (const row of VECTOR) {
       const resolved = resolveWeek(row.key, row.index);
       assert.equal(resolved.entry.id, row.entry, `${row.key} entry`);
-      assert.equal(resolved.value.id, row.value, `${row.key} value`);
+      assert.equal(resolved.label, `${row.entry} ${row.value}`, `${row.key} value`);
+    }
+  });
+
+  it('opens each week at the published instant, to the millisecond (§14.4)', () => {
+    // The column the offset actually moved. Each row is asserted from both
+    // sides, because a build that ignores the offset gets the inside of the week
+    // right and only the boundary wrong — §14.2 is explicit that this is the
+    // failure a mid-week sample cannot see.
+    for (const row of VECTOR) {
+      const begins = Date.parse(row.begins);
+
+      assert.equal(weekKey(begins), row.key, `${row.key} begins at ${row.begins}`);
+      assert.equal(weekIndex(begins), row.index, `${row.key} index at its first instant`);
+      assert.notEqual(weekKey(begins - 1), row.key, `${row.key} had not begun a millisecond earlier`);
     }
   });
 
@@ -198,12 +173,14 @@ describe('the published schedule vector (design.md §14.4, criterion 22)', () =>
     // arithmetic half of it. The instant goes in, the week comes out, and
     // nothing in between reads storage, a zone or a socket.
     for (const row of VECTOR) {
-      const instant = EPOCH + row.index * WEEK_MS + 36 * 60 * 60 * 1000; // Tuesday noon
+      // Tuesday noon of the reset frame — the epoch is a reset-frame Monday, so
+      // offsetting from it stays in that frame without naming the offset again.
+      const instant = EPOCH + row.index * WEEK_MS + 36 * 60 * 60 * 1000;
       const resolved = resolveWeek(weekKey(instant), weekIndex(instant));
 
       assert.equal(resolved.key, row.key);
       assert.equal(resolved.entry.id, row.entry, `${row.key} entry from the clock`);
-      assert.equal(resolved.value.id, row.value, `${row.key} value from the clock`);
+      assert.equal(resolved.label, `${row.entry} ${row.value}`, `${row.key} value from the clock`);
     }
   });
 
@@ -230,10 +207,14 @@ describe('the published schedule vector (design.md §14.4, criterion 22)', () =>
     // §14.2: the key is resolved at the transition to PLAYING and held. The
     // function is pure in its instant, so holding the resolved value is all that
     // is needed — a clock change mid-run cannot reach back into it.
-    const started = Date.UTC(2026, 10, 8, 23, 59, 0); // Sunday, one minute to go
+    // One minute before the reset: 16:59 UTC on a Sunday, which is 23:59 on the
+    // Sunday of the reset frame. Under the withdrawn UTC draft this instant was
+    // seven hours into the *next* week, which is exactly the kind of row that
+    // makes the offset visible rather than assumed.
+    const started = Date.UTC(2026, 10, 8, 16, 59, 0);
     const held = resolveWeek(weekKey(started), weekIndex(started));
 
-    const crossed = started + 2 * 60 * 1000; // past the Monday boundary
+    const crossed = started + 2 * 60 * 1000; // past the Monday 00:00 UTC+7 boundary
     const next = resolveWeek(weekKey(crossed), weekIndex(crossed));
 
     assert.equal(held.key, '2026-W45');

@@ -13,6 +13,7 @@
 // Every number used here comes from `src/config`.
 
 import {
+  DISPLAY_NAME_MAX_LENGTH,
   GAME_OVER_BEST_SIZE,
   GAME_OVER_BEST_Y,
   GAME_OVER_CLEAR_RADIUS,
@@ -33,6 +34,7 @@ import {
   HUD_LABEL_SIZE,
   HUD_LEFT_X,
   HUD_LINE_HEIGHT_RATIO,
+  HUD_MONO_WIDTH_RATIO,
   HUD_NEXT_SPAWN_Y,
   HUD_NOTE_SIZE,
   HUD_POWER_LABEL_Y,
@@ -51,6 +53,23 @@ import {
   HUD_TIME_VALUE_Y,
   HUD_VALUE_SIZE,
   LAMP_Y,
+  NAME_EDITOR_CARET_GAP,
+  NAME_EDITOR_CARET_WIDTH,
+  NAME_EDITOR_FIELD_HEIGHT,
+  NAME_EDITOR_FIELD_PADDING_X,
+  NAME_EDITOR_FIELD_SIZE,
+  NAME_EDITOR_FIELD_TEXT_Y,
+  NAME_EDITOR_FIELD_WIDTH,
+  NAME_EDITOR_FIELD_Y,
+  NAME_EDITOR_HEADING_SIZE,
+  NAME_EDITOR_HEADING_Y,
+  NAME_EDITOR_NOTICE_SIZE,
+  NAME_EDITOR_NOTICE_Y,
+  NAME_EDITOR_PROMPT_SIZE,
+  NAME_EDITOR_PROMPT_Y,
+  NAME_EDITOR_RULE_SIZE,
+  NAME_EDITOR_RULE_Y,
+  RENDER_WIDTH,
   TITLE_BEST_SIZE,
   TITLE_BEST_Y,
   TITLE_CONTROLS_ROW_GAP,
@@ -60,6 +79,8 @@ import {
   TITLE_FOOTNOTE_Y,
   TITLE_HEADING_SIZE,
   TITLE_HEADING_Y,
+  TITLE_NAME_SIZE,
+  TITLE_NAME_Y,
   TITLE_PROMPT_SIZE,
   TITLE_PROMPT_Y,
   TITLE_TAGLINE_SIZE,
@@ -251,6 +272,7 @@ export const TITLE_BOXES: readonly HudBox[] = [
   overlayRow('control row 2', TITLE_CONTROLS_TOP_Y + TITLE_CONTROLS_ROW_GAP, TITLE_CONTROLS_SIZE),
   overlayRow('control row 3', TITLE_CONTROLS_TOP_Y + TITLE_CONTROLS_ROW_GAP * 2, TITLE_CONTROLS_SIZE),
   overlayRow('control row 4', TITLE_CONTROLS_TOP_Y + TITLE_CONTROLS_ROW_GAP * 3, TITLE_CONTROLS_SIZE),
+  overlayRow('title display name', TITLE_NAME_Y, TITLE_NAME_SIZE),
   overlayRow('title best score', TITLE_BEST_Y, TITLE_BEST_SIZE),
   overlayRow('title prompt', TITLE_PROMPT_Y, TITLE_PROMPT_SIZE),
   overlayRow('title footnote', TITLE_FOOTNOTE_Y, TITLE_FOOTNOTE_SIZE),
@@ -265,6 +287,58 @@ export const GAME_OVER_BOXES: readonly HudBox[] = [
   overlayRow('game-over best', GAME_OVER_BEST_Y, GAME_OVER_BEST_SIZE),
   overlayRow('game-over prompt', GAME_OVER_PROMPT_Y, GAME_OVER_PROMPT_SIZE),
 ];
+
+// ---------------------------------------------------------------------------
+// The name editor — docs/design.md §15.3
+// ---------------------------------------------------------------------------
+
+const CENTER_X = RENDER_WIDTH / 2;
+
+/** The field is a box of its own width, not a full-width row. */
+export const NAME_FIELD_BOX: HudBox = {
+  name: 'name field',
+  left: CENTER_X - NAME_EDITOR_FIELD_WIDTH / 2,
+  top: NAME_EDITOR_FIELD_Y,
+  right: CENTER_X + NAME_EDITOR_FIELD_WIDTH / 2,
+  bottom: NAME_EDITOR_FIELD_Y + NAME_EDITOR_FIELD_HEIGHT,
+};
+
+/** Every row of the name editor, top to bottom. */
+export const NAME_EDITOR_BOXES: readonly HudBox[] = [
+  overlayRow('name editor heading', NAME_EDITOR_HEADING_Y, NAME_EDITOR_HEADING_SIZE),
+  NAME_FIELD_BOX,
+  overlayRow('name editor rule', NAME_EDITOR_RULE_Y, NAME_EDITOR_RULE_SIZE),
+  overlayRow('name editor notice', NAME_EDITOR_NOTICE_Y, NAME_EDITOR_NOTICE_SIZE),
+  overlayRow('name editor prompt', NAME_EDITOR_PROMPT_Y, NAME_EDITOR_PROMPT_SIZE),
+];
+
+/**
+ * How wide a draft of `characters` characters is, caret included, in px.
+ *
+ * The name is set in the mono stack so this is arithmetic rather than a guess:
+ * the field has to be proved wide enough for the longest name the rules allow,
+ * because a name that overflows its box is the one thing this screen cannot be
+ * allowed to do — the player would be editing text they cannot see.
+ */
+export function nameDraftWidth(characters: number): number {
+  const glyphs = Math.max(0, characters) * NAME_EDITOR_FIELD_SIZE * HUD_MONO_WIDTH_RATIO;
+  return glyphs + NAME_EDITOR_CARET_GAP + NAME_EDITOR_CARET_WIDTH;
+}
+
+/** The widest a draft may be before it touches the field's padding. */
+export const NAME_FIELD_TEXT_BUDGET = NAME_EDITOR_FIELD_WIDTH - NAME_EDITOR_FIELD_PADDING_X * 2;
+
+/** The widest draft the §15.1 rules can produce: every character spent. */
+export const NAME_FIELD_LONGEST_DRAFT = nameDraftWidth(DISPLAY_NAME_MAX_LENGTH);
+
+/** The line of text inside the field, for the proof that it sits in its box. */
+export const NAME_FIELD_TEXT_BOX: HudBox = {
+  name: 'name field text',
+  left: CENTER_X - NAME_FIELD_TEXT_BUDGET / 2,
+  top: NAME_EDITOR_FIELD_TEXT_Y,
+  right: CENTER_X + NAME_FIELD_TEXT_BUDGET / 2,
+  bottom: NAME_EDITOR_FIELD_TEXT_Y + lineHeight(NAME_EDITOR_FIELD_SIZE),
+};
 
 /**
  * The band around the lamp that game-over text must stay out of, so the crawler

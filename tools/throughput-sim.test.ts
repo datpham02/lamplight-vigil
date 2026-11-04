@@ -15,19 +15,23 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { SCORE_PER_BANISH, SHIPPED_RUN_CONFIG, type WeeklyModifier } from '../src/config/index';
-import { applyWeeklyModifier, type ModifierCell } from '../src/weekly/index';
+import { SCORE_PER_BANISH } from '../src/config/index';
+import { BASE_TUNING, tuningDifferences } from '../src/config/tuning';
+import { WEEKLY_MODIFIERS, type WeeklyModifier } from '../src/config/weeklyModifiers';
 import {
   DEFAULT_DT,
   DEFAULT_HORIZON,
   DEFAULT_STEP,
+  FIRST_TIMER_RUN_WINDOW,
   SKILL_TIERS,
+  WEEKLY_CELL_RUN_WINDOW,
   buildInvocation,
   checkAcceptance,
-  checkCell,
   simulate,
   sweepModifiers,
+  tiersForCell,
   type SimulationResult,
+  type SweepResult,
 } from './throughput-sim';
 
 const SHIPPED = {
@@ -35,6 +39,7 @@ const SHIPPED = {
   horizon: DEFAULT_HORIZON,
   step: DEFAULT_STEP,
   tiers: SKILL_TIERS,
+  config: BASE_TUNING,
 };
 
 /** §6 — at `dt = 0.001` no acceptance number may move by more than this. */
@@ -206,166 +211,299 @@ describe('throughput simulation — the GAM-15 refit path (§4)', () => {
   });
 });
 
-describe('throughput simulation — the weekly modifier sweep (design.md §14.9)', () => {
-  const swept = sweepModifiers(SHIPPED);
+// ---------------------------------------------------------------------------
+// The weekly modifier sweep — docs/design.md §14.9, GAM-16 condition C2.1
+// ---------------------------------------------------------------------------
 
-  it('leaves the base run exactly as it was, which is the whole regression', () => {
-    // §14.9: the override surface "must not change shipped behaviour at the base
-    // config — the existing npm run sim output and CrawlerField.test.ts are the
-    // regression". Passing the shipped config explicitly must be the same run as
-    // not passing one at all.
-    const implicit = simulate(SHIPPED);
-    const explicit = simulate({ ...SHIPPED, config: SHIPPED_RUN_CONFIG });
+const SWEEP = { dt: DEFAULT_DT, horizon: DEFAULT_HORIZON, step: DEFAULT_STEP };
 
-    assert.deepEqual(explicit.landmarks, implicit.landmarks);
-    assert.deepEqual(explicit.tiers, implicit.tiers);
-    assert.deepEqual(explicit.rows, implicit.rows);
-  });
+const shippedSweep = sweepModifiers(SWEEP);
 
-  it('sweeps all fifteen cells of the §14.5 table', () => {
-    assert.equal(swept.length, 15);
-    assert.deepEqual(swept[0]?.cell.label, 'plain x1.00');
-  });
+function failuresOf(sweep: SweepResult): string[] {
+  return [
+    ...sweep.cells.flatMap((cell) =>
+      cell.assertions.filter((a) => !a.ok).map((a) => `${cell.label} ${a.name}`),
+    ),
+    ...sweep.tableAssertions.filter((a) => !a.ok).map((a) => `table ${a.name}`),
+  ];
+}
 
-  it('passes every assertion on every cell', () => {
-    const failures = swept.flatMap(({ cell, assertions }) =>
-      assertions
-        .filter((assertion) => !assertion.ok)
-        .map((assertion) => `${cell.label}: ${assertion.name} — got ${assertion.actual}`),
+/**
+ * `docs/design.md` §14.5, every cell, both tiers. Fifteen rows for fifteen cells,
+ * including the four that are expected to equal `plain` exactly — §14.5 is
+ * explicit that a row which *differs* is the thing to report.
+ *
+ * These are the design's numbers. If one fails, the config, §14.5 or the sweep
+ * disagree: say so on the task, do not retune the expectation here
+ * (`docs/throughput-sim.md` §9.4, §14.9).
+ */
+const CELL_TABLE: readonly { cell: string; firstTimer: number; practised: number }[] = [
+  { cell: 'plain x1.00', firstTimer: 79.1, practised: 250.3 },
+  { cell: 'restless-hollow x0.90', firstTimer: 79.1, practised: 250.3 },
+  { cell: 'restless-hollow x1.10', firstTimer: 79.1, practised: 250.3 },
+  { cell: 'clinging-dark x1.15', firstTimer: 68.7, practised: 231.4 },
+  { cell: 'clinging-dark x1.30', firstTimer: 59.9, practised: 213.8 },
+  { cell: 'thin-wick x0.90', firstTimer: 64.7, practised: 235.6 },
+  { cell: 'thin-wick x0.85', firstTimer: 57.9, practised: 227.3 },
+  { cell: 'hungry-flame x1.10', firstTimer: 66.0, practised: 237.0 },
+  { cell: 'hungry-flame x1.20', firstTimer: 55.7, practised: 224.4 },
+  { cell: 'crowded-threshold x0.94', firstTimer: 61.9, practised: 232.7 },
+  { cell: 'crowded-threshold x1.06', firstTimer: 95.7, practised: 266.9 },
+  { cell: 'narrow-lantern x0.85', firstTimer: 73.8, practised: 245.3 },
+  { cell: 'narrow-lantern x1.15', firstTimer: 83.9, practised: 254.9 },
+  { cell: 'one-axis long-dark', firstTimer: 79.1, practised: 250.3 },
+  { cell: 'one-axis over-the-top', firstTimer: 79.1, practised: 250.3 },
+];
+
+/** §14.5 quotes run lengths to 0.1 s, so half of that is the whole budget. */
+const QUOTED_PRECISION = 0.051;
+
+describe('weekly modifier sweep — the shipped table (§14.5)', () => {
+  it('iterates the whole declared table: eight entries, fifteen cells', () => {
+    assert.equal(WEEKLY_MODIFIERS.length, 8);
+    assert.equal(shippedSweep.cells.length, 15);
+    assert.deepEqual(
+      shippedSweep.cells.map((cell) => cell.label),
+      CELL_TABLE.map((row) => row.cell),
     );
+  });
+
+  it('passes every §14.9 assertion at every cell', () => {
+    assert.deepEqual(failuresOf(shippedSweep), []);
+  });
+
+  it('checks Group B and W1-W4 per cell, and never Group A', () => {
+    for (const cell of shippedSweep.cells) {
+      assert.ok(
+        cell.assertions.some((a) => a.group === 'B' && a.name.startsWith('B9')),
+        `${cell.label} is held to a run-length band`,
+      );
+      assert.ok(
+        cell.assertions.some((a) => a.group === 'W' && a.name.startsWith('W1')),
+        `${cell.label} has its resolved value checked against §10`,
+      );
+      assert.deepEqual(
+        cell.assertions.filter((a) => a.group === 'A'),
+        [],
+        'Group A reproduces §11.1 at the shipped config and is expected to move under a modifier',
+      );
+      assert.deepEqual(
+        cell.assertions.filter((a) => a.skipped !== null),
+        [],
+        'a cell is never a calibration, so nothing may be skipped',
+      );
+    }
+  });
+
+  for (const row of CELL_TABLE) {
+    it(`${row.cell} lands where §14.5 says it does`, () => {
+      const cell = shippedSweep.cells.find((candidate) => candidate.label === row.cell);
+      const runLength = (key: string): number => {
+        const tier = cell?.result.tiers.find((candidate) => candidate.tier.key === key);
+        assert.ok(tier?.runLength != null, `${row.cell} ends inside the horizon for ${key}`);
+        return tier.runLength;
+      };
+
+      for (const [key, expected] of [
+        ['first-timer', row.firstTimer],
+        ['practised', row.practised],
+      ] as const) {
+        const actual = runLength(key);
+        assert.ok(
+          Math.abs(actual - expected) <= QUOTED_PRECISION,
+          `${row.cell} ${key}: §14.5 says ${expected} s, the sweep says ${actual.toFixed(2)} s. ` +
+            'That disagreement is a design question — report it, do not retune this table.',
+        );
+      }
+    });
+  }
+
+  it('applies the §14.6 backlogTolerance coupling to BEAM_WIDE_ANGLE_DEG alone', () => {
+    const coupled = tiersForCell(
+      { id: 'narrow-lantern', kind: 'multiplier', constant: 'BEAM_WIDE_ANGLE_DEG', values: [0.85] },
+      0,
+    );
+    const uncoupled = tiersForCell(
+      { id: 'clinging-dark', kind: 'multiplier', constant: 'BURN_DWELL_TIME', values: [1.3] },
+      0,
+    );
+
+    assert.equal(coupled[0]?.backlogTolerance, 3 * 0.85);
+    assert.equal(uncoupled[0]?.backlogTolerance, SKILL_TIERS[0]?.backlogTolerance);
+  });
+
+  it('leaves the base config untouched: a cell is the shipped config plus one constant', () => {
+    assert.deepEqual(BASE_TUNING, { ...BASE_TUNING }, 'BASE_TUNING is not mutated by a sweep');
+    for (const cell of shippedSweep.cells) {
+      const changed = tuningDifferences(BASE_TUNING, cell.result.options.config);
+      assert.ok(
+        changed.length <= 1 && changed.every((key) => key === cell.constant),
+        `${cell.label} changed ${changed.join(', ') || 'nothing'}`,
+      );
+    }
+  });
+});
+
+// A green run against a table that cannot fail is not acceptance (GAM-39). Each
+// fixture below is a cell a reviewer might wave through, and each one names the
+// assertion that catches it. If one of these ever passes, the sweep has stopped
+// being a gate and is only a report.
+describe('weekly modifier sweep — the failure path (criterion 24)', () => {
+  const PLAIN: WeeklyModifier = {
+    id: 'plain',
+    kind: 'multiplier',
+    constant: 'SPAWN_INTERVAL_START',
+    values: [1.0],
+  };
+  /** One known-good cell beside the bad one, so a failure is not the whole table. */
+  const sweepOf = (entry: WeeklyModifier): SweepResult => sweepModifiers(SWEEP, [PLAIN, entry]);
+
+  it('catches SPAWN_INTERVAL_START x1.15: inside its own safe range, past B5 (§14.6)', () => {
+    const sweep = sweepOf({
+      id: 'bad-quiet-opening',
+      kind: 'multiplier',
+      constant: 'SPAWN_INTERVAL_START',
+      values: [1.15],
+    });
 
     assert.deepEqual(
-      failures,
+      failuresOf(sweep).filter((name) => name.startsWith('plain')),
       [],
-      'a cell outside its bound is a design question for game-designer — ' +
-        'report it on the task rather than adjusting the cell (§14.9)',
+      'the good cell in the same table still passes',
+    );
+    assert.ok(
+      failuresOf(sweep).includes('bad-quiet-opening x1.15 B5 the floor binds inside a reachable run'),
+      'the floor binds at 371.6 s, past the 360 s bound, while x1.15 is inside SPAWN_INTERVAL_START\'s own §10 range',
     );
   });
 
-  it('runs Group B per cell, and never Group A', () => {
-    // Group A reproduces §11.1 at the shipped config and is expected to fail
-    // under a modifier by design: restless-hollow x1.10 moves speedCapsAt from
-    // 198 s to 153.9 s, which is the modifier working.
-    for (const { cell, assertions } of swept) {
-      assert.ok(
-        assertions.every((assertion) => assertion.group === 'B'),
-        `${cell.label} ran a Group A assertion`,
-      );
-      assert.ok(assertions.some((assertion) => assertion.name.startsWith('B9')));
-      assert.ok(assertions.some((assertion) => assertion.name.startsWith('W1')));
-      assert.ok(assertions.some((assertion) => assertion.name.startsWith('W2')));
-    }
-
-    const plain = swept.find(({ cell }) => cell.entry.id === 'plain');
-    assert.ok(plain?.assertions.some((assertion) => assertion.name.startsWith('W3')));
-  });
-
-  it('couples backlogTolerance to BEAM_WIDE_ANGLE_DEG, and to nothing else (§14.6)', () => {
-    // §11.1 anchors B on 360 / BEAM_WIDE_ANGLE_DEG, so the cone modifier is the
-    // one entry whose run lengths may differ from the base through the tier
-    // table. x0.85 and x1.15 of B = 3 are the 2.55 and 3.45 §14.6 measures.
-    const narrow = swept.find(({ cell }) => cell.label === 'narrow-lantern x0.85');
-    const broad = swept.find(({ cell }) => cell.label === 'narrow-lantern x1.15');
-    const dwell = swept.find(({ cell }) => cell.label === 'clinging-dark x1.15');
-
-    assert.ok(Math.abs((narrow?.result.options.tiers[0]?.backlogTolerance ?? 0) - 2.55) < 1e-9);
-    assert.ok(Math.abs((broad?.result.options.tiers[0]?.backlogTolerance ?? 0) - 3.45) < 1e-9);
-    assert.equal(dwell?.result.options.tiers[0]?.backlogTolerance, 3, 'every other cell keeps B');
-  });
-
-  it('reproduces the §14.5 per-cell run lengths, all fifteen', () => {
-    // The figures `game-designer` published, re-derived here rather than
-    // restated: if the override surface or the coupling is wrong, these move.
-    const PUBLISHED: Readonly<Record<string, readonly [number, number]>> = {
-      'plain x1.00': [79.1, 250.3],
-      'restless-hollow x0.90': [79.1, 250.3],
-      'restless-hollow x1.10': [79.1, 250.3],
-      'clinging-dark x1.15': [68.7, 231.4],
-      'clinging-dark x1.30': [59.9, 213.8],
-      'thin-wick x0.90': [64.7, 235.6],
-      'thin-wick x0.85': [57.9, 227.3],
-      'hungry-flame x1.10': [66.0, 237.0],
-      'hungry-flame x1.20': [55.7, 224.4],
-      'crowded-threshold x0.94': [61.9, 232.7],
-      'crowded-threshold x1.06': [95.7, 266.9],
-      'narrow-lantern x0.85': [73.8, 245.3],
-      'narrow-lantern x1.15': [83.9, 254.9],
-      'one-axis long-dark': [79.1, 250.3],
-      'one-axis over-the-top': [79.1, 250.3],
-    };
-
-    assert.equal(Object.keys(PUBLISHED).length, swept.length, 'fifteen rows for fifteen cells');
-
-    for (const { cell, result } of swept) {
-      const expected = PUBLISHED[cell.label];
-      assert.ok(expected !== undefined, `${cell.label} is not in the §14.5 table`);
-
-      const firstTimer = result.tiers.find((tier) => tier.tier.key === 'first-timer')?.runLength;
-      const practised = result.tiers.find((tier) => tier.tier.key === 'practised')?.runLength;
-
-      assert.ok(
-        firstTimer != null && Math.abs(firstTimer - expected[0]) < 0.1,
-        `${cell.label} first-timer: §14.5 publishes ${expected[0]} s, the sim says ${String(firstTimer)}`,
-      );
-      assert.ok(
-        practised != null && Math.abs(practised - expected[1]) < 0.1,
-        `${cell.label} practised: §14.5 publishes ${expected[1]} s, the sim says ${String(practised)}`,
-      );
-    }
-  });
-
-  it('expects the four model-invisible cells to equal plain exactly (§14.5)', () => {
-    // restless-hollow and one-axis change constants the run-length model does
-    // not integrate over. QA should expect those four rows to match plain; a row
-    // that *differs* is the thing to report.
-    const plain = swept.find(({ cell }) => cell.label === 'plain x1.00');
-    const invisible = ['restless-hollow x0.90', 'restless-hollow x1.10', 'one-axis long-dark', 'one-axis over-the-top'];
-
-    for (const label of invisible) {
-      const cell = swept.find((entry) => entry.cell.label === label);
-      assert.deepEqual(cell?.result.tiers, plain?.result.tiers, `${label} should read as plain`);
-    }
-  });
-
-  it('fails loudly on a bad cell, naming it and the assertion (criterion 24)', () => {
-    // §14.6 works this exact example: SPAWN_INTERVAL_START x1.15 is still inside
-    // the 45-120 s criterion at 118.9 s and still inside the constant's own §10
-    // safe range, and it fails anyway — on B5, an invariant two subsections
-    // away. That is why the table needs this sweep rather than a reviewer's
-    // judgement, and it is the case criterion 24 asks to be demonstrated.
-    const entry: WeeklyModifier = {
-      id: 'crowded-threshold',
-      constant: 'SPAWN_INTERVAL_START',
-      values: [],
-    };
-    const value = {
+  it('catches a cell outside the §14.6 run-length band', () => {
+    const sweep = sweepOf({
+      id: 'bad-long-burn',
       kind: 'multiplier',
-      id: 'x1.15',
-      headline: 'A quiet threshold.',
-      effect: 'They come later at first.',
-      multiplier: 1.15,
-    } as const;
-
-    const config = applyWeeklyModifier(SHIPPED_RUN_CONFIG, entry, value);
-    const bad: ModifierCell = { entry, value, label: 'crowded-threshold x1.15', config };
-
-    const base = simulate({ ...SHIPPED, config: SHIPPED_RUN_CONFIG });
-    const result = simulate({ ...SHIPPED, config });
-    const failed = checkCell(bad, result, base).filter((assertion) => !assertion.ok);
+      constant: 'BURN_DWELL_TIME',
+      values: [1.6],
+    });
 
     assert.ok(
-      failed.some((assertion) => assertion.name.startsWith('B5')),
-      `the floor binds at ${String(result.landmarks.floorBindsAt)} s and B5 must say so`,
+      failuresOf(sweep).includes('bad-long-burn x1.60 B9 run lengths meet the shipping criterion'),
+      'x1.60 resolves to 0.64 s, inside BURN_DWELL_TIME\'s §10 range, and collapses the run',
     );
+  });
+
+  it('catches a resolved value outside its §10 safe range (W1)', () => {
+    const sweep = sweepOf({
+      id: 'bad-fast-crawl',
+      kind: 'multiplier',
+      constant: 'CRAWLER_SPEED_BASE',
+      values: [1.5],
+    });
+
     assert.ok(
-      failed.some((assertion) => assertion.name.startsWith('B9')),
-      'and 118.9 s is outside the §14.6 band',
+      failuresOf(sweep).includes('bad-fast-crawl x1.50 W1 CRAWLER_SPEED_BASE is inside its §10 safe range'),
+      '78 px/s is outside the 35-75 band a designer may retune inside by hand',
     );
+  });
+
+  it('catches an entry naming a constant that is not on the §14.5 list (W2, C1.1)', () => {
+    // The union type is the first fence; this proves the second one. A table
+    // hand-edited past the type — or widened by a later task — still fails.
+    const offTable = {
+      id: 'bad-crawler-cap',
+      kind: 'multiplier',
+      constant: 'MAX_CRAWLERS',
+      values: [1.5],
+    } as unknown as WeeklyModifier;
+
     assert.ok(
-      checkCell(bad, result, base).some(
-        (assertion) => assertion.name.startsWith('W1') && assertion.ok,
+      failuresOf(sweepOf(offTable)).includes(
+        'bad-crawler-cap x1.50 W2 the cell changes its named constant only',
       ),
-      'W1 passes: 3.68 s is inside SPAWN_INTERVAL_START’s own 2.5–6.0 range, which is the point',
+      'MAX_CRAWLERS is a performance rail, deliberately not in the table (§14.7)',
     );
+  });
+
+  it('catches edge weights that do not sum to 1 (B7)', () => {
+    const sweep = sweepOf({
+      id: 'bad-axis',
+      kind: 'override',
+      constant: 'SPAWN_EDGE_WEIGHTS',
+      values: [{ id: 'leaky', weights: { top: 0.05, bottom: 0.05, left: 0.45, right: 0.4 } }],
+    });
+
+    assert.ok(
+      failuresOf(sweep).includes('bad-axis leaky B7 spawn edge weights sum to 1'),
+      'a weight set that does not sum to 1 silently lowers the spawn rate',
+    );
+  });
+
+  it('catches a `plain` cell that is not the shipped config (W3)', () => {
+    const sweep = sweepModifiers(SWEEP, [
+      { id: 'plain', kind: 'multiplier', constant: 'SPAWN_INTERVAL_START', values: [1.02] },
+    ]);
+
+    assert.ok(
+      failuresOf(sweep).includes('plain x1.02 W3 plain reproduces the shipped Group A numbers'),
+      'if the plain week is not the shipped game, the override layer is lying about something',
+    );
+  });
+
+  it('catches a table with no `plain` cell at all', () => {
+    const sweep = sweepModifiers(SWEEP, [
+      { id: 'clinging-dark', kind: 'multiplier', constant: 'BURN_DWELL_TIME', values: [1.15] },
+    ]);
+
+    assert.ok(
+      failuresOf(sweep).includes('table W3 the table declares a `plain` cell'),
+      'W3 must not pass by having nothing to check itself on',
+    );
+  });
+
+  it('catches an easier power economy before a player would notice it (§14.6)', () => {
+    // Every "kinder" direction spends the B3 margin. This one keeps B3 itself
+    // true — 1.00 < 1.03 s — and still fails, which is the point of W4.
+    const sweep = sweepOf({
+      id: 'bad-generous-lamp',
+      kind: 'multiplier',
+      constant: 'POWER_RECHARGE_RATE',
+      values: [1.2],
+    });
+    const failures = failuresOf(sweep);
+
+    assert.ok(
+      failures.includes('bad-generous-lamp x1.20 W4 B3 keeps the §14.6 margin'),
+      'a weekly modifier must not quietly buy a good player an unbounded run',
+    );
+    assert.ok(
+      !failures.includes('bad-generous-lamp x1.20 B3 asymptote invariant'),
+      'B3 itself still holds here, which is why §14.6 states a margin rather than a sign',
+    );
+  });
+});
+
+describe('weekly modifier sweep — invocation (§14.9)', () => {
+  it('is off unless --modifiers is passed, and sweeps the whole tier table', () => {
+    assert.equal(buildInvocation([]).modifiers, false);
+    assert.equal(buildInvocation(['--modifiers']).modifiers, true);
+    assert.equal(buildInvocation(['--modifiers']).calibrated, false);
+    assert.throws(() => buildInvocation(['--modifiers', '--tier', 'expert']), /takes no --tier/);
+    assert.throws(
+      () => buildInvocation(['--modifiers', '--tier', 'expert', '--backlog', '4.2']),
+      /takes no --tier/,
+    );
+  });
+
+  it('leaves plain `npm run sim` at the shipped config and the criterion-2 window', () => {
+    const invocation = buildInvocation([]);
+
+    assert.deepEqual(invocation.options.config, BASE_TUNING);
+    assert.equal(FIRST_TIMER_RUN_WINDOW.min, 45);
+    assert.equal(FIRST_TIMER_RUN_WINDOW.max, 120);
+    assert.equal(WEEKLY_CELL_RUN_WINDOW.min, 55);
+    assert.equal(WEEKLY_CELL_RUN_WINDOW.max, 110);
+  });
+
+  it('is deterministic (§6)', () => {
+    assert.deepEqual(sweepModifiers(SWEEP), sweepModifiers(SWEEP));
   });
 });

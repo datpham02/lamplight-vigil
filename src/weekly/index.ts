@@ -6,6 +6,10 @@
 // schedule, but they are exported because §14.3 and §14.4 are a contract a
 // server written against D4 must be able to reproduce, and because the
 // conformance vectors in those sections are tests.
+//
+// The §14.5 table and the override layer are not re-exported from here: they are
+// `src/config`'s, and `tools/throughput-sim.ts` reads them straight from there.
+// One name for one thing, so the sweep and a run cannot drift apart.
 
 export { fnv1a32, mulberry32, seededUnitRandom, type RunRandom } from './seed';
 export { msRemainingInWeek, weekIndex, weekKey } from './weekKey';
@@ -17,14 +21,4 @@ export {
   resolveWeekAt,
   type ResolvedWeek,
 } from './schedule';
-export {
-  applyWeeklyModifier,
-  changedRunConfigKeys,
-  freePlayRun,
-  weeklyModifierCells,
-  weeklyRun,
-  weeklyRunAt,
-  weeklySpawnSeed,
-  type ModifierCell,
-  type RunSetup,
-} from './run';
+export { freePlayRun, weeklyRun, weeklyRunAt, weeklySpawnSeed, type RunSetup } from './run';

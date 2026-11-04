@@ -3,8 +3,10 @@
 Milestone: **Playable Vigil** ([`docs/concept.md`](./concept.md) §8, row 1).
 Owner: `game-designer`. Approval: `game-director`.
 
-§1–§13 are Playable Vigil. §14 is the first section of the **Online Vigil**
-milestone and carries its own approval.
+§1–§13 are Playable Vigil. §14 and §15 belong to the **Online Vigil** milestone
+and carry their own approval: §14 is `game-designer`'s (OV-1), §15 is
+`ui-designer`'s (OV-8). Each is scoped in its own preamble, and §15 amends the
+§7 input table in the two rows marked for it.
 
 **Where this sits.** [`docs/concept.md`](./concept.md) is the Board-approved concept
 and is the source of truth for *what the game is*. [`docs/vision.md`](./vision.md)
@@ -28,7 +30,8 @@ can tell a deliberate value from a typo.
 **In.** Run state machine, beam state machine, beam geometry, crawler movement and
 spawning, the power economy, freeze and burn resolution, scoring, and the full
 tuning table. §14 adds the Online Vigil weekly seed and the closed table of weekly
-modifiers; it is a later milestone and is scoped in its own preamble.
+modifiers, and §15 the display name captured on the title screen; both are a
+later milestone and are scoped in their own preambles.
 
 **Out, and deliberately so.**
 
@@ -64,9 +67,12 @@ the constructor (`AGENTS.md`).
 
 ### 2.1 TITLE
 
-Entered at boot. Shows the game name, the control summary, and the best score.
-No crawlers exist, no timer runs, no power drains. Any key or any click enters
-PLAYING.
+Entered at boot. Shows the game name, the control summary, and the best score —
+and, from the Online Vigil milestone, the display name this device plays under
+(§15.2). No crawlers exist, no timer runs, no power drains. Any key or any click
+enters PLAYING, with the single stated exception in §15.4: while the title
+screen is offering `INPUT_RENAME_KEY`, that key opens the name editor instead,
+and the prompt on screen says so for exactly as long as it is true.
 
 ### 2.2 PLAYING
 
@@ -196,7 +202,8 @@ score, so there is nothing to protect, and a title screen that stopped breathing
 until it was clicked would be a worse first impression than the one it fixes.
 
 **A suspension never retunes the run it suspends.** A pause can last across
-midnight, across a laptop sleeping, and across the Monday 00:00 UTC rollover.
+midnight, across a laptop sleeping, and across the Monday 00:00 UTC+7 rollover
+(Sunday 17:00 UTC — §14.2).
 §14.2 already rules that the week key and the modifier are resolved once at the
 transition to PLAYING and held for the whole run, so a run that resumes in the
 next week finishes under the configuration it started in. Suspension resets
@@ -513,7 +520,9 @@ The complete input surface. Nothing else is read.
 | Hold `INPUT_FOCUS_KEY` | PLAYING | Narrows the beam. Release widens it. Edge-triggered on entry to PLAYING (§2.2). |
 | Hold left mouse button | PLAYING | Identical to the above, including the edge trigger. |
 | `INPUT_RESTART_KEY` | GAME_OVER | Restarts. A press inside `GAME_OVER_INPUT_LOCKOUT` is buffered and fires when it expires (§2.3). |
-| Any key, any click | TITLE | Starts the run. |
+| `INPUT_RENAME_KEY` | TITLE, while a rename is available | Opens the name editor (§15.3, Online Vigil). Inert in every other state. |
+| Any key the editor acts on | TITLE, editor open | Goes into the name field, not to the run (§15.3). |
+| Any key, any click | TITLE | Starts the run. While `INPUT_RENAME_KEY` is being offered it is the one exception, and the prompt says so (§15.4). |
 | Any key, any click | PLAYING, suspended | Resumes. Runs through the §2.2 edge trigger (§2.5). |
 
 Every one of these is read from the game's own container, never from the window
@@ -1272,6 +1281,12 @@ Milestone: **Online Vigil** (planned in GAM-16, approved by the Board 2026-11-04
 Owner: `game-designer`. **Approval: `game-director`, before OV-2 starts.** This is
 task OV-1.
 
+*Amended 2026-11-04 (GAM-43), on the Board's ruling "Keep UTC+7": §14.2 specified
+the week boundary at plain UTC, which deviated from GAM-16 decision **D6**. §14.2
+and the "Begins" column of §14.4 are re-derived at the fixed offset UTC+7;
+criteria 18, 26 and 36 move with them. No other part of this section changes, and
+§14.4's entry and value columns are unchanged — §14.4 says why.*
+
 *Placed after §13 rather than before it because `src/config`, `src/scenes` and
 `src/enemies` all cite "§13" by number for the three sound cues. Renumbering an
 anchor to make a table of contents tidier is not worth a stale reference.*
@@ -1314,70 +1329,157 @@ feature, and it comes to me as its own task against pillar 1.
 
 ### 14.2 The week key
 
-The **week key** is the ISO-8601 week date of the current UTC instant, formatted
-`YYYY-Www` — `2026-W45`. The week begins **Monday 00:00:00 UTC** and runs 7 days.
-ISO week 1 is the week containing the first Thursday of January, so a year has 52
-or 53 weeks and the first days of January can belong to the previous ISO year.
+The week begins **Monday 00:00:00 at UTC+7** — the same instant as **Sunday
+17:00:00 UTC** — and runs 7 days. This is GAM-16 decision **D6**, restated by the
+Board on 2026-11-04 ("Keep UTC+7"). The earlier draft of this section specified
+plain UTC; that was a deviation from D6, and this section replaces it.
+
+The **week key** is the ISO-8601 week date of the current instant *read at that
+offset*, formatted `YYYY-Www` — `2026-W45`. ISO week 1 is the week containing the
+first Thursday of January, so a year has 52 or 53 weeks and the first days of
+January can belong to the previous ISO year.
+
+**The offset is one named constant, `WEEK_RESET_UTC_OFFSET_HOURS = 7`**, in
+`src/config`. Nothing else in the game, the simulation or the tests may write a
+7, a Sunday or a 17:00 of its own: a boundary recorded in two places is a
+boundary that will eventually disagree with itself. Call the frame the constant
+defines the **reset frame** — the whole computation below happens inside it, and
+converts at its edges.
 
 ```ts
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MS_PER_HOUR = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+const WEEK_MS = 7 * MS_PER_DAY;
 
-/** Midnight UTC on the Monday of the week containing `ms`. */
-function mondayUtc(ms: number): number {
-  const d = new Date(ms);
+/** The one offset the boundary is anchored to. D6. */
+const WEEK_RESET_OFFSET_MS = WEEK_RESET_UTC_OFFSET_HOURS * MS_PER_HOUR;
+
+/** Midnight on the Monday of the week containing `shiftedMs`, in the reset frame. */
+function mondayOfWeek(shiftedMs: number): number {
+  const d = new Date(shiftedMs);
   const midnight = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   const dayIndex = (new Date(midnight).getUTCDay() + 6) % 7; // Monday = 0
-  return midnight - dayIndex * 86_400_000;
+  return midnight - dayIndex * MS_PER_DAY;
 }
 
-/** ISO-8601 week date, UTC. */
+/** ISO-8601 week date at the reset offset. */
 function weekKey(ms: number): string {
-  const thursday = mondayUtc(ms) + 3 * 86_400_000;
+  const monday = mondayOfWeek(ms + WEEK_RESET_OFFSET_MS);
+  const thursday = monday + 3 * MS_PER_DAY;
   const isoYear = new Date(thursday).getUTCFullYear();
   const jan4 = Date.UTC(isoYear, 0, 4);
-  const firstThursday = mondayUtc(jan4) + 3 * 86_400_000;
+  const firstThursday = mondayOfWeek(jan4) + 3 * MS_PER_DAY;
   const week = 1 + Math.round((thursday - firstThursday) / WEEK_MS);
   return `${isoYear}-W${String(week).padStart(2, '0')}`;
 }
 
 /** Whole weeks since WEEKLY_EPOCH_UTC_MS, floored at 0. */
 function weekIndex(ms: number): number {
-  return Math.max(0, Math.floor((mondayUtc(ms) - WEEKLY_EPOCH_UTC_MS) / WEEK_MS));
+  const monday = mondayOfWeek(ms + WEEK_RESET_OFFSET_MS);
+  return Math.max(0, Math.floor((monday - WEEKLY_EPOCH_UTC_MS) / WEEK_MS));
+}
+
+/** Milliseconds left in the week containing `ms` — the pillar 2 countdown. */
+function msRemainingInWeek(ms: number): number {
+  const shifted = ms + WEEK_RESET_OFFSET_MS;
+  return mondayOfWeek(shifted) + WEEK_MS - shifted;
 }
 ```
 
-**`WEEKLY_EPOCH_UTC_MS = Date.UTC(2026, 0, 5)`** — Monday 5 January 2026, the
-Monday of `2026-W02`. It is in the past so that no shipped build ever computes a
-negative index, and it is a Monday so that `weekIndex` is exact rather than
-rounded.
+`mondayOfWeek` is given an already-shifted instant and returns a shifted one.
+Both of its callers shift on the way in, and `weekIndex` subtracts an epoch that
+is itself stated in the reset frame, so no expression ever mixes the two frames.
 
-**Worked examples**, which are also acceptance vectors (criterion 18):
+**`WEEKLY_EPOCH_UTC_MS = Date.UTC(2026, 0, 5)`** — Monday 5 January 2026
+00:00:00 **in the reset frame**, which is the real instant
+`2026-01-04T17:00:00Z`. It is the Monday of `2026-W02`; it is in the past so that
+no shipped build ever computes a negative index; and it is a Monday *of the reset
+frame*, which is what makes `weekIndex` exact rather than rounded.
 
-| UTC instant | `weekKey` | `weekIndex` |
-| --- | --- | --- |
-| `2026-01-05T00:00:00Z` | `2026-W02` | 0 |
-| `2026-01-11T23:59:59Z` | `2026-W02` | 0 |
-| `2026-01-12T00:00:00Z` | `2026-W03` | 1 |
-| `2026-11-02T00:00:00Z` | `2026-W45` | 43 |
-| `2026-11-08T23:59:59Z` | `2026-W45` | 43 |
-| `2026-11-09T00:00:00Z` | `2026-W46` | 44 |
-| `2026-12-28T00:00:00Z` | `2026-W53` | 51 |
-| `2027-01-03T00:00:00Z` | `2026-W53` | 51 |
-| `2027-01-04T00:00:00Z` | `2027-W01` | 52 |
+The constant keeps the name it already carries in `src/config`, and that name is
+the one trap in this section: the number is a reset-frame Monday midnight, not a
+UTC one. Two ways to get it wrong, both worth naming because neither is loud:
 
-2026 is a 53-week ISO year; the boundary rows above are in the table because that
-is the case an implementation gets wrong.
+- **Converting the week's Monday back to a real UTC instant** (subtracting the
+  offset) while leaving the epoch as written makes every difference `k` weeks
+  *minus* seven hours, and `Math.floor` turns that into `k - 1`. Every index is
+  one week low, at every instant, so the game plays last week's entry forever —
+  consistently enough to look deliberate.
+- **Forgetting the shift altogether** is quieter still. For six days and seventeen
+  hours a week the reset-frame Monday and the UTC Monday are the same number, so
+  the index is right and the key matches; only inside the seven hours between
+  Sunday 17:00 UTC and Monday 00:00 UTC do they differ. A test that samples
+  mid-week sees nothing. That window is why rows 3, 6 and 9 of the table below
+  are in it, and why criterion 18 requires the offset to be exercised rather than
+  assumed.
 
-**Why UTC and not local time.** A leaderboard is one global list. If the week key
-came from local time, two players in different zones would be on different weeks,
-with different modifiers, submitting to the same board — a fairness bug that only
-shows up at the edges of the week and is almost impossible to reproduce. The cost
-is that the reset lands at an awkward local hour for some players; that is a
-smaller problem than a board that silently mixes two configurations.
+Keep both sides of the subtraction in the reset frame, as the code above does.
+
+**Worked examples**, which are also acceptance vectors (criterion 18). Each row
+is one instant, written twice:
+
+| UTC instant | Same instant at UTC+7 | `weekKey` | `weekIndex` |
+| --- | --- | --- | --- |
+| `2026-01-04T17:00:00Z` | Mon 2026-01-05 00:00:00 | `2026-W02` | 0 |
+| `2026-01-11T16:59:59Z` | Sun 2026-01-11 23:59:59 | `2026-W02` | 0 |
+| `2026-01-11T17:00:00Z` | Mon 2026-01-12 00:00:00 | `2026-W03` | 1 |
+| `2026-11-01T17:00:00Z` | Mon 2026-11-02 00:00:00 | `2026-W45` | 43 |
+| `2026-11-08T16:59:59Z` | Sun 2026-11-08 23:59:59 | `2026-W45` | 43 |
+| `2026-11-08T17:00:00Z` | Mon 2026-11-09 00:00:00 | `2026-W46` | 44 |
+| `2026-12-27T17:00:00Z` | Mon 2026-12-28 00:00:00 | `2026-W53` | 51 |
+| `2027-01-03T16:59:59Z` | Sun 2027-01-03 23:59:59 | `2026-W53` | 51 |
+| `2027-01-03T17:00:00Z` | Mon 2027-01-04 00:00:00 | `2027-W01` | 52 |
+
+2026 is a 53-week ISO year; the last three rows are in the table because the
+`2026-W53` → `2027-W01` roll is the case an ISO implementation gets wrong. Every
+row sits on a Sunday afternoon or evening in UTC, which is the second thing the
+table is for: a build that ignores the offset — one with
+`WEEK_RESET_UTC_OFFSET_HOURS` left at 0 — returns the wrong key for six of these
+nine rows, and only the three `16:59:59Z` rows pass. Rows 3, 6 and 9 are the
+sharpest: they are Sunday 17:00 UTC and Monday 00:00 in the reset frame, and a
+UTC build reports the week that is ending rather than the one that has just
+begun.
+
+**Why a fixed offset, and why this is not local time.** A leaderboard is one
+global list. If the week key came from the *device's* zone, two players in
+different zones would be on different weeks, with different modifiers, submitting
+to the same board — a fairness bug that only shows up at the edges of the week and
+is almost impossible to reproduce. That argument is against per-player local
+time, and it is still correct.
+
+It is not an argument against a fixed offset, and the draft this section replaces
+rejected +7 by conflating the two. A fixed +7 is **one boundary for the entire
+world**: every player, in every zone, crosses it at the same instant, so there is
+never more than one current week and the fairness bug above cannot be
+constructed. It is a fixed offset and not a zone, so it has no daylight-saving
+rule and the week is 7 × 24 h forever. The only thing the offset changes is
+*where the boundary lands on a UTC clock*: Sunday 17:00 UTC instead of Monday
+00:00 UTC. Which offset that is, is the Board's call and not this document's; D6
+fixes it at +7 and this section implements it.
+
+The one cost worth writing down: for the seven hours between Sunday 17:00 UTC and
+Monday 00:00 UTC, the date part of a UTC timestamp and the week key disagree.
+Anything that logs, displays, buckets or files a week — a submission record, a
+QA note, a dashboard — must take the key from `weekKey()`. Deriving a week from
+the date part of a UTC timestamp is wrong for 4% of the week, which is the
+failure rate most likely to survive a review.
+
+**The server owns the key; the client computes it for the run in front of it.**
+Per D3/D6, the authoritative week key for anything ranked or submitted is the one
+the server derives, with the same pure functions and the same constant. The
+client resolves the key locally so that it can configure and *display* the run it
+is about to play — §14.8 and criterion 20 require a weekly run to start with the
+network blocked — but its copy is evidence, never authority: a submission carries
+the resolved `id` and value it was played under (§14.4) and the server revalidates
+them against its own key. Nothing here names or assumes a provider; D4 is still
+pending.
 
 **Pillar 2 — the week is not hidden state.** The title screen states the week key
-and the time remaining in it, in plain words, before a run starts. A player must
-never be unable to answer "which week am I playing?"
+and the time remaining in it (`msRemainingInWeek`), in plain words, before a run
+starts. A player must never be unable to answer "which week am I playing?" If the
+screen names a clock time for the reset rather than a countdown, it names the
+offset with it — "Monday 00:00 UTC+7" — because an unqualified hour is the same
+hidden state in a friendlier font.
 
 **The key is resolved once per run, at the transition to `PLAYING`, and held for
 the whole run.** A clock change, a midnight rollover or a laptop waking from sleep
@@ -1536,20 +1638,38 @@ from a sample.
    install and a two-year-old one resolve the same week identically.
 
 **Conformance vector** (criterion 22) — the first ten weeks from the Board's
-approval date, at the table in §14.5:
+approval date, at the table in §14.5. The "Begins" column is the real UTC instant
+the week opens at, under D6 (§14.2): Monday 00:00 UTC+7, which is the Sunday
+evening before on a UTC clock.
 
-| Week | `weekIndex` | Entry | Value |
-| --- | --- | --- | --- |
-| `2026-W45` | 43 | `clinging-dark` | ×1.30 |
-| `2026-W46` | 44 | `plain` | ×1.00 |
-| `2026-W47` | 45 | `one-axis` | `over-the-top` |
-| `2026-W48` | 46 | `restless-hollow` | ×1.10 |
-| `2026-W49` | 47 | `hungry-flame` | ×1.10 |
-| `2026-W50` | 48 | `narrow-lantern` | ×1.15 |
-| `2026-W51` | 49 | `clinging-dark` | ×1.15 |
-| `2026-W52` | 50 | `crowded-threshold` | ×1.06 |
-| `2026-W53` | 51 | `hungry-flame` | ×1.20 |
-| `2027-W01` | 52 | `one-axis` | `long-dark` |
+| Week | Begins (UTC) | `weekIndex` | Entry | Value |
+| --- | --- | --- | --- | --- |
+| `2026-W45` | `2026-11-01T17:00:00Z` | 43 | `clinging-dark` | ×1.30 |
+| `2026-W46` | `2026-11-08T17:00:00Z` | 44 | `plain` | ×1.00 |
+| `2026-W47` | `2026-11-15T17:00:00Z` | 45 | `one-axis` | `over-the-top` |
+| `2026-W48` | `2026-11-22T17:00:00Z` | 46 | `restless-hollow` | ×1.10 |
+| `2026-W49` | `2026-11-29T17:00:00Z` | 47 | `hungry-flame` | ×1.10 |
+| `2026-W50` | `2026-12-06T17:00:00Z` | 48 | `narrow-lantern` | ×1.15 |
+| `2026-W51` | `2026-12-13T17:00:00Z` | 49 | `clinging-dark` | ×1.15 |
+| `2026-W52` | `2026-12-20T17:00:00Z` | 50 | `crowded-threshold` | ×1.06 |
+| `2026-W53` | `2026-12-27T17:00:00Z` | 51 | `hungry-flame` | ×1.20 |
+| `2027-W01` | `2027-01-03T17:00:00Z` | 52 | `one-axis` | `long-dark` |
+
+**Re-derived at UTC+7, the entry and value columns are unchanged, and that is a
+result rather than an oversight.** The schedule reads exactly two things: the
+week key string, and `weekIndex`. §14.2 computes both wholly inside the reset
+frame, against an epoch (`WEEKLY_EPOCH_UTC_MS`) that is a Monday *of that same
+frame*, so shifting the frame shifts every week and the epoch together. `2026-W45`
+is still the 43rd week after the epoch and is still spelled `2026-W45`, so
+`blockOrder(5)[3]` and `fnv1a32('…|2026-W45|clinging-dark|value')` are the same
+numbers they were. What the offset moves is only the **"Begins" column** — each
+week now opens seven hours earlier on a UTC clock than the previous draft of this
+section said, and the ten rows above are the re-derivation.
+
+The consequence for the implementer: changing `WEEK_RESET_UTC_OFFSET_HOURS` from
+0 to 7 must leave criterion 22 passing untouched while criterion 18's vectors all
+move. If a schedule test moves when the offset changes, something downstream of
+`weekKey` is reading a clock it should not be reading.
 
 These ten weeks span blocks 5 and 6. **Re-derived under the corrected
 `blockOrder`, the vector is unchanged**: neither block collides with its
@@ -1808,8 +1928,9 @@ resolves an entry, never submits a score, and never shows a rank.
   restarts the mode you were already in (GAM-16, pillar 3). The restart path never
   grows a step, in either mode.
 - **A weekly run never waits on the clock.** The week key is a local arithmetic
-  function of `Date.now()`. There is no fetch, no time-sync and nothing to await
-  between the keypress and the first playable frame.
+  function of `Date.now()` and the fixed offset in §14.2 — no zone lookup, no
+  fetch, no time-sync and nothing to await between the keypress and the first
+  playable frame.
 
 ### 14.9 The sweep — what `npm run sim` must check
 
@@ -1861,7 +1982,7 @@ across the whole document.
 
 | # | Criterion | How to verify |
 | --- | --- | --- |
-| 18 | The week key is a pure function of the UTC clock, per ISO-8601 | Unit test over the nine vectors in §14.2, including the `2026-W53` → `2027-W01` boundary. Freeze the clock; no other input |
+| 18 | The week key is a pure function of the clock instant, per ISO-8601 read at the fixed offset `WEEK_RESET_UTC_OFFSET_HOURS = 7` (D6) | Unit test over the nine vectors in §14.2, including the `2026-W53` → `2027-W01` boundary and the three Sunday-17:00-UTC rows. Freeze the clock; no other input, and no reading of the host's time zone. Setting the constant to 0 must fail six of the nine rows — if it does not, the offset is not reaching `weekKey` |
 | 19 | The seed functions match the published vectors | Unit test over the five `fnv1a32` vectors in §14.3. A mismatch means a future server will disagree with the client |
 | 20 | A week resolves with no network access | Block the network at the browser, load the game, and confirm the title screen names the week and its modifier. No request is made and nothing is awaited |
 | 21 | Every entry appears exactly once per eight-week block, and no two consecutive weeks share one | **Two assertions, and the second must not be a sample.** (a) *Count:* iterate 520 weeks from `WEEKLY_EPOCH_UTC_MS`; each of the eight `id`s appears exactly 65 times and the longest run of one `id` is 1. (b) *Boundary, as a property:* for every block `b` in `1 .. 10_000`, assert `blockOrder(b)[0] !== blockOrder(b - 1)[N - 1]`, and assert `blockOrder(b)` is a permutation of all `N` ids. Sampling 520 weeks passes on a schedule whose first repeat is nineteen years out (§14.4), so (a) alone is not evidence for this criterion |
@@ -1869,8 +1990,237 @@ across the whole document.
 | 23 | Every resolved value is inside its constant's §10 safe range | Sweep assertion W1 |
 | 24 | The sweep fails loudly on a bad cell | Temporarily add a cell outside the band (for example `SPAWN_INTERVAL_START ×1.15`, which breaks B5), confirm `npm run sim -- --modifiers` exits non-zero and names the cell and the assertion, then revert it |
 | 25 | No modifier adds an entity, input or beam behaviour | Read the diff: the table is data in `src/config`, and the only constants it names are the seven in §14.5. Then run the pillar 1 QA check (`docs/vision.md` §3) on a modified week — exercise every input and confirm each only aims or shapes the beam |
-| 26 | The modifier is resolved once, at run start, and never changes mid-run | Start a weekly run, change the system clock across a Monday boundary mid-run, and confirm nothing retunes. The next run picks up the new week |
+| 26 | The modifier is resolved once, at run start, and never changes mid-run | Start a weekly run, change the system clock across a Monday 00:00 UTC+7 boundary mid-run (Sunday 17:00 UTC), and confirm nothing retunes. The next run picks up the new week |
 | 27 | The active modifier is not hidden state | Its name and its effect are on the title screen before the run and on the game-over screen after it, in plain words, with the week key. A player who has never read this document can say what is different this week |
 | 28 | Free Play is unseeded, unranked and unmodified | Play Free Play on a week whose modifier is `clinging-dark ×1.30` and confirm a burn takes the shipped 0.40 s, no rank appears and no submission is attempted |
 | 29 | The restart path never grows a step | `R` from game-over restarts the mode just played, with no mode prompt, inside the §12 criterion 8 budget. Measure it in both modes |
 | 30 | Every cell lands in the modelled band | From the sweep: first-timer run in [55, 110] s and practised > 180 s for all fifteen cells. The §14.5 per-cell table lists the expected value for each — fifteen rows for fifteen cells, including the four that are expected to equal `plain` exactly |
+| 36 | The week boundary is written down exactly once | Assert `WEEK_RESET_UTC_OFFSET_HOURS === 7`, citing §14.2 and D6, so the value cannot drift silently. Then search `src/`, `tools/` and the tests for a second copy of the boundary — a bare `7 * 3600`, a `17:00`, a `Sunday`, or any `getTimezoneOffset`. The only arithmetic that may touch the offset is §14.2's, and nothing may consult the host's zone |
+
+---
+
+## 15. The display name
+
+Milestone: **Online Vigil** (planned in GAM-16, approved by the Board
+2026-11-04). Owner: `ui-designer`. This is task OV-8.
+
+**D4 — provider and hosting — is still pending with the Board.** Nothing in this
+section calls a backend, names one, or assumes one exists. The name is captured
+on the device and stored on the device. The charset, the length bounds and the
+weekly rename interval are the rules a server will enforce later; they are held
+here as a **convenience**, so that a name is never typed, carried for a week and
+then refused, and never as the check.
+
+**What this section is for.** `docs/vision.md` §5b.1 item 4 puts an anonymous,
+display-name-only identity in scope, and criterion B7 says creating one requires
+no input beyond that name. GAM-16's condition **C3.2** then says where it may be
+asked for, and it is the load-bearing sentence in this whole section:
+
+> The display name is set **once, on the title screen**, defaults to a generated
+> name (for example `Vigil 7421`), and is editable from the title screen only.
+> `R` always bypasses it.
+
+Classic arcade name-on-death is the failure this forbids. It puts a menu between
+dying and playing again, which is pillar 3 — "one more sweep" — failing at the
+exact moment the pillar exists to protect.
+
+### 15.1 What a name may be
+
+The D2 rules, as approved:
+
+| Rule | Value |
+| --- | --- |
+| Length, after trimming | `DISPLAY_NAME_MIN_LENGTH` to `DISPLAY_NAME_MAX_LENGTH` — 3 to 12 |
+| Characters | `A-Z`, `a-z`, `0-9`, and the space |
+| Spaces | Single and internal. Leading and trailing spaces are trimmed; two in a row are refused |
+| Default | Generated: `DISPLAY_NAME_DEFAULT_PREFIX`, a space, and four digits — `Vigil 7421` |
+| Rename | Once per `DISPLAY_NAME_RENAME_INTERVAL_DAYS` — 7 |
+
+Case is preserved. A name is a label a player chose, and `LAMPKEEPER` is not what
+they typed.
+
+Trimming rather than refusing the outer spaces is deliberate: a space at either
+end is invisible, and an editor that refuses a keystroke the rules are about to
+discard anyway is an editor arguing with the player. A space in the *middle* is
+visible, so the second one in a row is refused at the keystroke, where the player
+can see which key did it.
+
+**The generated default is not a rename.** A player who has never chosen a name
+is not on a cooldown for a name they never picked. `renamedAt` is null until they
+commit one of their own.
+
+### 15.2 On the title screen
+
+One row, between the control table and the best score — `TITLE_NAME_Y`, mono,
+dim, centred. It has two readings and never a third:
+
+```
+PLAYING AS Vigil 7421 · PRESS N TO RENAME          (rename available)
+PLAYING AS Lampkeeper · RENAME AGAIN IN 3 DAYS     (rename on cooldown)
+```
+
+It is **one** row rather than a labelled block because the control table above it
+is what `docs/vision.md` §6 criterion 5 is decided by — every playtester
+describing the wide/focused trade-off after one run, unprompted — and a second
+row of identity copy pushing at that table is exactly the dilution criterion 5
+cannot afford. The name sits below the controls and directly above the figure it
+will one day be printed beside.
+
+The second half of the row is the state of the weekly rename, on screen at all
+times, because pillar 2 forbids the game holding a cooldown the screen never
+mentions. The count is rounded **up**: "0 days" beside a shut editor would be the
+screen contradicting itself. It is also kept **live** — the cooldown runs on the
+wall clock, so a title screen left open across the moment it expires says so on
+the frame it happens, rather than offering a key the row has just denied. That
+is one clock reading per title frame and an event on the frame the figure
+changes; no frame of PLAYING reaches it.
+
+### 15.3 The editor
+
+A panel over the title screen, reachable from TITLE and from nowhere else. Five
+things on it, and each one has a job:
+
+| Row | Says |
+| --- | --- |
+| Heading | `THE NAME ON YOUR LAMP` |
+| Field | The draft, mono, in a bounded box, with a caret just past the last character |
+| Rules | `3–12 CHARACTERS · LETTERS, NUMBERS AND SINGLE SPACES` — stated before they can be broken |
+| Notice | The standing `A NAME CAN BE CHANGED ONCE A WEEK`, or the one complaint the last keystroke earned |
+| Prompt | `ENTER SAVES · ESC KEEPS Vigil 7421` — both ways out, and what ESC goes back to |
+
+**Keys.** `ENTER` commits. `ESC` closes and keeps the committed name. `BACKSPACE`
+takes one character off the end. Any single printable character is typed into the
+field. `TAB` is deliberately *not* consumed, so focus can always leave the game —
+an editor you cannot tab out of is a keyboard trap. Every key the editor does act
+on has its default prevented, so a space cannot scroll the host page and a `/`
+cannot open the browser's quick-find (§2.6: the game never acts on the page
+around it).
+
+There is no caret movement and no selection. This is a twelve-character arcade
+name field, not a text editor, and arrow keys and `HOME` are an input surface
+with nothing to gain.
+
+**A click while the editor is open does nothing.** It does not start a run: the
+player is mid-sentence, and a run opening under their cursor would throw the
+draft away. The two keys that end the editor are on screen the whole time.
+
+**Refusals say what the rule is, not that a rule was broken.** `LETTERS, NUMBERS
+AND SPACES ONLY` tells a player what to type next; `INVALID NAME` tells them to
+guess. A refused keystroke never enters the field, and a refused `ENTER` keeps
+the draft on screen — a field that empties itself when it rejects you is a field
+you have to type into twice.
+
+**The weekly limit.** While a rename is on cooldown the key is not offered and
+the panel cannot be opened; the title row says when it can be. Committing the
+name you already had is not a rename and does not start the cooldown, so opening
+the panel to read the rules is never a risk.
+
+### 15.4 The one input this adds, and why pillar 1 still holds
+
+`INPUT_RENAME_KEY` (`N`) opens the editor, **in TITLE only, and only while a
+rename is available**. It is inert in PLAYING and in GAME_OVER. §7 is amended
+with the two rows this adds and nothing else.
+
+Pillar 1's test, as §7 puts it, is "whether an input does anything other than aim
+or shape the beam", and the pillar 1 QA check in `docs/vision.md` §3 exercises
+every input *during a run*. In a run this key does nothing at all: it reaches no
+beam, no crawler and no power, and there is no state in which it can be pressed
+and a crawler is on screen. The input surface of the game-as-played is unchanged.
+What the key does is open a screen the Board has already required to exist —
+C3.2 asks for a name that is editable from the title screen, which cannot be done
+without an affordance there.
+
+**It is also the one key on the title screen that does not start a run**, and
+that is stated rather than hidden. While the key is offered the prompt reads
+`PRESS ANY OTHER KEY OR CLICK TO BEGIN`; the moment it stops being offered —
+because a rename is on cooldown — every key starts a run again and the prompt
+goes back to `PRESS ANY KEY OR CLICK TO BEGIN`. The exception is on screen for
+exactly as long as the exception is real, which is what pillar 2 asks of every
+other string in this game.
+
+A pointer affordance was considered and rejected: the mouse is the aim device,
+and a mis-click on the title screen opening a modal is worse than a key that is
+named on the row above the prompt. Every click still begins a run.
+
+### 15.5 Pillar 3 — what is *not* on the restart path
+
+Condition C3.2 is held by construction, in three places, and QA can check each:
+
+1. **The scene can only open a session in TITLE.** The branch that opens the
+   editor is guarded on `RUN_STATE.TITLE`; there is no other caller.
+2. **The session is cleared on entry to PLAYING**, before the first frame of the
+   run, and the screen is told on the same frame.
+3. **The HUD takes the panel down on any state that is not TITLE**, whatever the
+   scene did. Two locks on a door the restart path never walks past.
+
+Nothing on the restart path reads storage either. The name is read **once**, in
+`init()`, beside the best score (§8), and never again — `R` to the first playable
+frame does no I/O, exactly as it did before this section existed.
+
+### 15.6 Accessibility
+
+These are requirements, not preferences, and each is checkable:
+
+- **Keyboard-operable end to end.** Opening, typing, committing and cancelling
+  are all keys. No pointer-only affordance exists, and no action needs a hold, a
+  drag or a double-press.
+- **No keyboard trap.** `ESC` always closes the editor, and `TAB` is never
+  consumed, so focus can leave the game while a draft is open. The draft is still
+  there when focus comes back.
+- **Nothing is timed.** The editor waits indefinitely. No keystroke expires and
+  nothing closes on its own.
+- **Colour is never the message.** A refusal is in ember *and* says a different
+  sentence than the standing notice it replaces. A player who cannot tell the two
+  colours apart reads the same information.
+- **The caret pulses, it does not flash.** It fades to `NAME_EDITOR_CARET_DIM_ALPHA`
+  and back over `NAME_EDITOR_CARET_PULSE_MS`, which is well under three flashes a
+  second, and it never fully disappears.
+- **Text is bounded and legible.** The smallest type on the panel is
+  `NAME_EDITOR_RULE_SIZE` (15 px in the fixed 960x540 render space, which FIT
+  scales up with everything else), on the lamplight-on-ink palette the rest of
+  the HUD already uses, with the §10 ink shadow under it.
+- **The name cannot overflow its field.** The field is proved wide enough for the
+  longest name the rules allow, caret included, in `src/hud/layout.test.ts`. A
+  player is never editing text they cannot see.
+
+### 15.7 What is stored
+
+One record, under `DISPLAY_NAME_STORAGE_KEY`:
+
+```json
+{ "name": "Lampkeeper", "renamedAt": 1762300000000 }
+```
+
+`renamedAt` is a clock reading, or null for a name the player never chose. There
+is no other personal field — `docs/vision.md` B7 — and no identifier of any kind
+beyond the name itself.
+
+Storage degrades the way §8's best score does, and for the same reason: a
+missing, unparseable or malformed record is treated as **no name yet** and a
+default is generated; a browser that refuses the write keeps the name for the
+session rather than breaking the game. A stored name that no longer passes §15.1
+is also treated as no name — the bounds are the server's and may tighten, and a
+player carrying a name the board would refuse should find that out now, from a
+fresh default, rather than later from a rejected score.
+
+A device clock wound **backwards** does not unlock a rename early; a clock wound
+forwards can. That is accepted: the server owns the real rule, and this is the
+convenience copy of it.
+
+### 15.8 Acceptance criteria — Online Vigil, OV-8
+
+Continuing the numbering in §12, §12.1 and §14.10.
+
+| # | Criterion | How to verify |
+| --- | --- | --- |
+| 31 | There is no name step between game over and the next playable frame | Die, press `R`, and confirm the next frame is playable: no panel, no field, no prompt. Repeat with a name never chosen, with one chosen, and with the rename on cooldown. This is condition C3.2 and it is the criterion this task exists to protect |
+| 32 | `R` is never the key that opens anything | From GAME_OVER, press `R`, `N`, and every letter: only `R` acts, and it restarts. `N` does nothing in GAME_OVER or in PLAYING |
+| 33 | The restart stays inside its budget | §12 criterion 8, re-measured on this build: `R` to first playable frame under 1.0 s. The name is read once at boot, so there is nothing new on this path to measure |
+| 34 | A new player has a usable name without doing anything | Clear storage, load the game: the title row names a generated `Vigil NNNN`, and the stored record carries it. No prompt, no step, no interruption |
+| 35 | The client enforces the same rules the server will | Unit tests over §15.1: 3–12 after trimming, letters, digits and single internal spaces only, double spaces and leading spaces refused, and every generated default passing its own rules |
+| 36 | A refusal says what to do next | Type `-`, type two spaces, commit `ab`, commit an empty field: each puts a different sentence on screen naming the rule, the draft survives, and the editor stays open |
+| 37 | The name is editable from the title screen, once a week | Rename, confirm the title row says when the next one is, confirm `N` no longer opens the panel, and confirm every key starts a run again. Committing an unchanged name does not start the cooldown |
+| 38 | The weekly limit is not hidden state | The cooldown is on the title row whenever it is running, and the limit itself is on the panel whenever it is open |
+| 39 | The editor is keyboard-operable and is not a trap | Open it, type, press `TAB`: focus leaves the game and the draft survives. Press `ESC` from any state: the panel closes and the committed name is unchanged |
+| 40 | Nothing here touches the network | Load with the network blocked and do all of the above. No request is made, and the repository names no provider (`docs/vision.md` B1) |
+| 41 | The panel never appears during play | Pillar 2 and B6's neighbour: the field is on the title screen only — never during PLAYING, never on game over, and never over the power, score or best-score readouts |

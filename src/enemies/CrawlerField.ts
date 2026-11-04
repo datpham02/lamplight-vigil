@@ -13,15 +13,19 @@ import {
   MAX_CRAWLERS,
   RENDER_HEIGHT,
   RENDER_WIDTH,
-  SHIPPED_RUN_CONFIG,
   SPAWN_CORNER_INSET,
   SPAWN_EDGES,
   SPAWN_FIRST_DELAY,
   SPAWN_MIN_SEPARATION_RAD,
   SPAWN_PLACEMENT_ATTEMPTS,
-  type RunConfig,
   type SpawnEdge,
 } from '../config/index';
+import {
+  BASE_TUNING,
+  type SpawnCurveTuning,
+  type SpeedCurveTuning,
+  type TuningConfig,
+} from '../config/tuning';
 import { Crawler } from './Crawler';
 
 /**
@@ -64,7 +68,7 @@ export interface RunRandom {
  */
 export interface FieldRun {
   readonly random: RunRandom;
-  readonly config: RunConfig;
+  readonly config: TuningConfig;
 }
 
 /**
@@ -87,25 +91,29 @@ export interface CrawlerFieldStep {
   readonly lampHit: Point | null;
 }
 
-/**
- * §5.4 — linear speed ramp, capped. Jitter is applied per crawler afterwards.
- *
- * The shape is the one in §5.4 and this task retunes nothing. `config` exists so
- * a weekly modifier and `npm run sim -- --modifiers` can evaluate the curve at
- * something other than the shipped values (§14.9); it defaults to the shipped
- * config, so every existing caller and the plain `npm run sim` are unchanged.
- */
-export function rampedSpeed(elapsedSeconds: number, config: RunConfig = SHIPPED_RUN_CONFIG): number {
+// Both curves take the config they read as an optional second argument, defaulted
+// to the shipped values (`docs/design.md` §14.9, item 1). The game never passes
+// one, so its behaviour is exactly what it was; `tools/throughput-sim.ts` passes a
+// weekly cell's config so that the sweep checks the *shipped* curve at a modified
+// constant rather than a second opinion about it (`docs/throughput-sim.md` §2).
+// The shape of neither formula changes — §9.3 of that document forbids it, and
+// OV-2 retunes nothing: a weekly run reaches these through the same argument.
+
+/** §5.4 — linear speed ramp, capped. Jitter is applied per crawler afterwards. */
+export function rampedSpeed(
+  elapsedSeconds: number,
+  config: SpeedCurveTuning = BASE_TUNING,
+): number {
   return Math.min(
     config.CRAWLER_SPEED_MAX,
     config.CRAWLER_SPEED_BASE * (1 + config.CRAWLER_SPEED_RAMP_PER_SECOND * elapsedSeconds),
   );
 }
 
-/** §5.4 — geometric decay of the spawn interval, floored. See {@link rampedSpeed}. */
+/** §5.4 — geometric decay of the spawn interval, floored. */
 export function spawnInterval(
   elapsedSeconds: number,
-  config: RunConfig = SHIPPED_RUN_CONFIG,
+  config: SpawnCurveTuning = BASE_TUNING,
 ): number {
   return Math.max(
     config.SPAWN_INTERVAL_MIN,
@@ -131,20 +139,21 @@ function angularDistance(a: number, b: number): number {
  *   the same seed and the same `step` calls, the spawn sequence is identical —
  *   same edges, same positions, same jitter — which is what `docs/vision.md`
  *   §5b.3 B5 means by two clients seeing the same week.
- * - **the numbers.** `config` is the §14.9 override surface. At
- *   `SHIPPED_RUN_CONFIG` the field behaves exactly as it did before OV-2.
+ * - **the numbers.** `config` is the §14.9 override surface, the same
+ *   {@link TuningConfig} the sweep evaluates a cell at. At `BASE_TUNING` the
+ *   field behaves exactly as it did before OV-2.
  */
 export class CrawlerField {
   private readonly crawlers: Crawler[] = [];
   private random: RunRandom;
-  private config: RunConfig;
+  private config: TuningConfig;
   private readonly banishedThisStep: Point[] = [];
   private readonly frozeThisStep: Point[] = [];
 
   /** Seconds until the next spawn. Reset to SPAWN_FIRST_DELAY on every run. */
   private nextSpawnIn = SPAWN_FIRST_DELAY;
 
-  public constructor(random: RunRandom = Math.random, config: RunConfig = SHIPPED_RUN_CONFIG) {
+  public constructor(random: RunRandom = Math.random, config: TuningConfig = BASE_TUNING) {
     this.random = random;
     this.config = config;
   }

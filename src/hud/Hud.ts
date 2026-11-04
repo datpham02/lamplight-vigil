@@ -15,6 +15,7 @@ import {
   VIGIL_EVENTS,
   type BeamState,
   type BeamStatePayload,
+  type DisplayNamePayload,
   type PausePayload,
   type PointPayload,
   type PowerPayload,
@@ -22,6 +23,7 @@ import {
   type ScorePayload,
 } from '../scenes/events';
 import { GameOverOverlay } from './GameOverOverlay';
+import { NameEditorOverlay } from './NameEditorOverlay';
 import { PauseOverlay } from './PauseOverlay';
 import { PlayHud } from './PlayHud';
 import { TitleOverlay } from './TitleOverlay';
@@ -31,6 +33,14 @@ export class Hud {
   private readonly play: PlayHud;
   private readonly title: TitleOverlay;
   private readonly gameOver: GameOverOverlay;
+
+  /**
+   * `docs/design.md` §15.3. Built with the rest of them, shown only over the
+   * title screen, and taken down by `onRunState` on any state that is not
+   * TITLE — which is the HUD's half of condition C3.2: whatever the scene
+   * does, there is no frame of PLAYING or GAME_OVER with a name field on it.
+   */
+  private readonly nameEditor: NameEditorOverlay;
 
   /**
    * §2.5. Built last so that it wins the depth tie against the other two
@@ -61,9 +71,11 @@ export class Hud {
     this.play = new PlayHud(scene);
     this.title = new TitleOverlay(scene);
     this.gameOver = new GameOverOverlay(scene);
+    this.nameEditor = new NameEditorOverlay(scene);
     this.pause = new PauseOverlay(scene);
 
     scene.events.on(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
+    scene.events.on(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
     scene.events.on(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     scene.events.on(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     scene.events.on(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);
@@ -89,6 +101,7 @@ export class Hud {
 
         this.title.hide();
         this.gameOver.hide();
+        this.nameEditor.hide();
         this.play.setVisible(true);
         break;
 
@@ -96,9 +109,20 @@ export class Hud {
         // The overlay carries every figure the play HUD was showing, so the
         // readouts come down rather than being stacked under the scrim.
         this.play.setVisible(false);
+        this.nameEditor.hide();
         this.gameOver.show(payload, payload.bestScore > this.bestAtRunStart, this.contact);
         break;
     }
+  }
+
+  /**
+   * §15.2 — the name, the state of its weekly rename, and the editor if one is
+   * open. The title row is written whether or not the title screen is up, so
+   * that showing it is never a frame behind the name it states.
+   */
+  private onDisplayName(payload: DisplayNamePayload): void {
+    this.title.showDisplayName(payload);
+    this.nameEditor.show(payload);
   }
 
   /** §2.5 — the run is suspended, or is not any more. */
@@ -131,6 +155,7 @@ export class Hud {
     const events = this.scene.events;
 
     events.off(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
+    events.off(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
     events.off(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     events.off(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     events.off(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);

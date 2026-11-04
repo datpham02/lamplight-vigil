@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  DISPLAY_NAME_MAX_LENGTH,
   HUD_LEFT_X,
   HUD_MARGIN_Y,
   HUD_POWER_METER_WIDTH,
@@ -23,11 +24,17 @@ import {
 import {
   GAME_OVER_BOXES,
   GAME_OVER_CLEAR_BAND,
+  NAME_EDITOR_BOXES,
+  NAME_FIELD_BOX,
+  NAME_FIELD_LONGEST_DRAFT,
+  NAME_FIELD_TEXT_BOX,
+  NAME_FIELD_TEXT_BUDGET,
   PLAY_HUD_BOXES,
   TITLE_BOXES,
   formatCount,
   formatRunTime,
   formatSeconds,
+  nameDraftWidth,
   overlaps,
   powerFillWidth,
   powerMarkX,
@@ -38,6 +45,7 @@ const ALL_BOXES: readonly HudBox[] = [
   ...PLAY_HUD_BOXES.map((entry) => entry.box),
   ...TITLE_BOXES,
   ...GAME_OVER_BOXES,
+  ...NAME_EDITOR_BOXES,
 ];
 
 describe('HUD placement (vision.md §6 criterion 7)', () => {
@@ -94,7 +102,7 @@ describe('HUD placement (vision.md §6 criterion 7)', () => {
   });
 
   it('never writes one overlay row over another', () => {
-    for (const rows of [TITLE_BOXES, GAME_OVER_BOXES]) {
+    for (const rows of [TITLE_BOXES, GAME_OVER_BOXES, NAME_EDITOR_BOXES]) {
       for (let i = 0; i < rows.length - 1; i += 1) {
         const above = rows[i];
         const below = rows[i + 1];
@@ -130,6 +138,42 @@ describe('game-over overlay (vision.md §6 criterion 6)', () => {
 
     assert.ok(above.length > 0, 'the headline and score read above the lamp');
     assert.ok(below.length > 0, 'the stats, best score and restart prompt read below it');
+  });
+});
+
+describe('the name editor (design.md §15.3)', () => {
+  it('fits the longest legal name, and its caret, inside the field', () => {
+    // The one thing this screen may not do is let a player edit text they
+    // cannot see. The name is mono, so the widest it can ever be is arithmetic.
+    assert.ok(
+      NAME_FIELD_LONGEST_DRAFT <= NAME_FIELD_TEXT_BUDGET,
+      `a ${DISPLAY_NAME_MAX_LENGTH}-character name needs ${NAME_FIELD_LONGEST_DRAFT}px ` +
+        `and the field offers ${NAME_FIELD_TEXT_BUDGET}px`,
+    );
+  });
+
+  it('keeps the line of text inside the box drawn around it', () => {
+    assert.ok(NAME_FIELD_TEXT_BOX.top >= NAME_FIELD_BOX.top, 'the draft starts inside the field');
+    assert.ok(
+      NAME_FIELD_TEXT_BOX.bottom <= NAME_FIELD_BOX.bottom,
+      'and the whole line is inside it',
+    );
+    assert.ok(NAME_FIELD_TEXT_BOX.left >= NAME_FIELD_BOX.left, 'with padding on the left');
+    assert.ok(NAME_FIELD_TEXT_BOX.right <= NAME_FIELD_BOX.right, 'and on the right');
+  });
+
+  it('grows the draft budget with the draft, and never reports a negative one', () => {
+    assert.ok(nameDraftWidth(1) < nameDraftWidth(2), 'a longer name is a wider one');
+    assert.ok(nameDraftWidth(0) > 0, 'an empty field still shows a caret');
+    assert.equal(nameDraftWidth(-5), nameDraftWidth(0), 'a nonsense length is an empty one');
+  });
+
+  it('puts the name on the title screen between the controls and the best score', () => {
+    const names = TITLE_BOXES.map((box) => box.name);
+    const nameRow = names.indexOf('title display name');
+
+    assert.ok(nameRow > names.indexOf('control row 4'), 'the control table still comes first');
+    assert.ok(nameRow < names.indexOf('title best score'), 'and the figures follow it');
   });
 });
 

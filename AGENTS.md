@@ -40,11 +40,18 @@ npm run build     # typecheck + production bundle into dist/
 npm run preview   # serve the built dist/ locally
 npm test          # node:test over src/ and tools/, through tsx
 npm run sim       # deterministic throughput simulation; see docs/throughput-sim.md
+npm run sim -- --modifiers   # the same, swept over every weekly modifier cell
 ```
 
 `npm run sim` reads the shipped `src/config` and checks the difficulty curve
 against `docs/design.md` §11.1 and its invariants. It exits non-zero when a retune
 breaks one, and needs no browser. Run it after changing any value in §10.4–§10.7.
+
+`npm run sim -- --modifiers` runs the same invariants over every cell of the
+weekly modifier table (`docs/design.md` §14.5), so a week the game can generate
+cannot break a pillar that the shipped config holds. Run it after changing any
+value in §10.3–§10.7 **or** any entry of the table — a modifier is a multiplier on
+a shipped constant, so retuning the constant moves every week built on it.
 
 `npm ci`, `npm run typecheck` and `npm run build` must all pass before you open a
 pull request, and their output belongs in the PR or the task comment.
