@@ -24,9 +24,13 @@ interface StorageLike {
   setItem(key: string, value: string): void;
 }
 
-interface StoredPlayer {
+interface StoredPlayerRecord {
   readonly id: string;
-  readonly displayName: string;
+}
+
+interface LegacyStoredPlayerRecord {
+  readonly id?: unknown;
+  readonly displayName?: unknown;
 }
 
 interface LocalPlatformOptions {
@@ -85,23 +89,27 @@ function readDisplayNameFromSceneStore(storage: StorageLike | null): string | nu
   return typeof parsed?.name === 'string' && parsed.name.length > 0 ? parsed.name : null;
 }
 
-function resolvePlayer(
-  storage: StorageLike | null,
-  random: () => number,
-  now: () => number,
-): StoredPlayer {
-  const stored = readJson<StoredPlayer>(storage, PLATFORM_PLAYER_STORAGE_KEY);
-  if (typeof stored?.id === 'string' && typeof stored.displayName === 'string') {
-    return stored;
+function readStoredPlayerId(storage: StorageLike | null): string | null {
+  const stored = readJson<LegacyStoredPlayerRecord>(storage, PLATFORM_PLAYER_STORAGE_KEY);
+  if (typeof stored?.id === 'string' && stored.id.length > 0) {
+    return stored.id;
   }
+  return null;
+}
 
-  const displayName = readDisplayNameFromSceneStore(storage) ?? generatedDisplayName(random);
+function readLegacyDisplayName(storage: StorageLike | null): string | null {
+  const stored = readJson<LegacyStoredPlayerRecord>(storage, PLATFORM_PLAYER_STORAGE_KEY);
+  if (typeof stored?.displayName === 'string' && stored.displayName.length > 0) {
+    return stored.displayName;
+  }
+  return null;
+}
+
+function createPlayerId(random: () => number, now: () => number): string {
   const seed = Math.floor(Math.min(Math.max(random(), 0), 0.999999) * 1_000_000_000)
     .toString(36)
     .padStart(6, '0');
-  const player: StoredPlayer = { id: `local-${now().toString(36)}-${seed}`, displayName };
-  writeJson(storage, PLATFORM_PLAYER_STORAGE_KEY, player);
-  return player;
+  return `local-${now().toString(36)}-${seed}`;
 }
 
 function sorted(entries: readonly PlatformLeaderboardEntry[]): readonly PlatformLeaderboardEntry[] {
@@ -117,7 +125,38 @@ export function createLocalPlatform(options: LocalPlatformOptions = {}): Platfor
   const storage = options.storage === undefined ? browserStorage() : options.storage;
   const now = options.now ?? Date.now;
   const random = options.random ?? Math.random;
-  const player = resolvePlayer(storage, random, now);
+  let playerId: string | null = null;
+  let fallbackDisplayName: string | null = null;
+
+  const resolvePlayerId = (): string => {
+    if (playerId !== null) {
+      return playerId;
+    }
+
+    const stored = readStoredPlayerId(storage);
+    if (stored !== null) {
+      playerId = stored;
+      return playerId;
+    }
+
+    playerId = createPlayerId(random, now);
+    writeJson(storage, PLATFORM_PLAYER_STORAGE_KEY, { id: playerId } satisfies StoredPlayerRecord);
+    return playerId;
+  };
+
+  const resolveDisplayName = (): string => {
+    const fromSceneStore = readDisplayNameFromSceneStore(storage);
+    if (fromSceneStore !== null) {
+      return fromSceneStore;
+    }
+
+    if (fallbackDisplayName !== null) {
+      return fallbackDisplayName;
+    }
+
+    fallbackDisplayName = readLegacyDisplayName(storage) ?? generatedDisplayName(random);
+    return fallbackDisplayName;
+  };
 
   const onPause = (_callback: () => void): PlatformUnsubscribe => () => {};
   const onResume = (_callback: () => void): PlatformUnsubscribe => () => {};
@@ -126,14 +165,14 @@ export function createLocalPlatform(options: LocalPlatformOptions = {}): Platfor
     capabilities: LEADERBOARD_CAPABILITIES,
 
     async getPlayer(): Promise<PlatformPlayer> {
-      return player;
+      return { id: resolvePlayerId(), displayName: resolveDisplayName() };
     },
 
     async submitScore(entry: PlatformScoreEntry): Promise<void> {
       const submittedAtMs = entry.submittedAtMs ?? now();
       const scoreEntry: PlatformLeaderboardEntry = {
-        playerId: player.id,
-        displayName: entry.displayName ?? player.displayName,
+        playerId: resolvePlayerId(),
+        displayName: entry.displayName ?? resolveDisplayName(),
         score: Math.max(0, Math.floor(entry.score)),
         mode: entry.mode,
         weekKey: entry.weekKey,

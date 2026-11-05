@@ -23,7 +23,7 @@ import {
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
-import { createLocalPlatform, hasCapability, type Platform } from '../platform/index';
+import { hasCapability, resolvePlatform, type Platform } from '../platform/index';
 import { freePlayRun, msRemainingInWeek, weeklyRunAt, type RunSetup } from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import {
@@ -123,7 +123,7 @@ export class VigilScene extends Phaser.Scene {
    * the run, so it must not be cleared in init().
    */
   private host: HostContext | null = null;
-  private platform: Platform = createLocalPlatform();
+  private platform: Platform | null = null;
 
   /**
    * §14.8 — which mode the current run is being played in.
@@ -250,7 +250,7 @@ export class VigilScene extends Phaser.Scene {
 
   create(): void {
     this.host = readHostContext(this);
-    this.platform = this.host?.platform ?? createLocalPlatform();
+    this.platform = this.host?.platform ?? resolvePlatform(undefined);
 
     // The minimum ambient floor from docs/design.md §10.2: a hollow that is
     // literally black hides crawlers the player is entitled to see.
@@ -802,7 +802,8 @@ export class VigilScene extends Phaser.Scene {
   }
 
   private submitScore(): void {
-    if (!hasCapability(this.platform, 'leaderboard')) {
+    const platform = this.platform;
+    if (platform === null || !hasCapability(platform, 'leaderboard')) {
       return;
     }
 
@@ -813,7 +814,7 @@ export class VigilScene extends Phaser.Scene {
       displayName: this.displayName.name,
     } as const;
 
-    void this.platform.submitScore(entry).catch(() => {
+    void platform.submitScore(entry).catch(() => {
       // Local fallback and offline paths are non-fatal by design.
     });
   }

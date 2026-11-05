@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { PLATFORM_LEADERBOARD_STORAGE_KEY, PLATFORM_PLAYER_STORAGE_KEY } from '../config/index';
+import {
+  DISPLAY_NAME_STORAGE_KEY,
+  PLATFORM_LEADERBOARD_STORAGE_KEY,
+  PLATFORM_PLAYER_STORAGE_KEY,
+} from '../config/index';
 import { createLocalPlatform } from './LocalPlatform';
 import { resolvePlatform } from './gateway';
 
@@ -37,13 +41,29 @@ describe('LocalPlatform', () => {
     const random = () => 0.5;
 
     const first = createLocalPlatform({ storage, now, random });
+    assert.equal(storage.entries.has(PLATFORM_PLAYER_STORAGE_KEY), false);
+
     const one = await first.getPlayer();
+    assert.equal(storage.entries.has(PLATFORM_PLAYER_STORAGE_KEY), true);
 
     const second = createLocalPlatform({ storage, now, random });
     const two = await second.getPlayer();
 
     assert.deepEqual(one, two);
-    assert.equal(storage.entries.has(PLATFORM_PLAYER_STORAGE_KEY), true);
+  });
+
+  it('reflects renamed display names from scene storage', async () => {
+    const storage = new FakeStorage();
+    const platform = createLocalPlatform({ storage, now: () => 7, random: () => 0.3 });
+
+    storage.setItem(DISPLAY_NAME_STORAGE_KEY, JSON.stringify({ name: 'Vigil 7421', renamedAt: null }));
+    const beforeRename = await platform.getPlayer();
+
+    storage.setItem(DISPLAY_NAME_STORAGE_KEY, JSON.stringify({ name: 'Lampkeeper', renamedAt: 1_700_000_000_000 }));
+    const afterRename = await platform.getPlayer();
+
+    assert.equal(afterRename.id, beforeRename.id);
+    assert.equal(afterRename.displayName, 'Lampkeeper');
   });
 
   it('stores score submissions and returns ranked rows', async () => {
