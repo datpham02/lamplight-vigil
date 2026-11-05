@@ -17,6 +17,7 @@ import {
   LAMP_X,
   LAMP_Y,
   MS_PER_SECOND,
+  PLATFORM_GAME_VERSION,
   POWER_FOCUS_REARM,
   POWER_MAX,
   RENDER_HEIGHT,
@@ -27,8 +28,22 @@ import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
 import { shareLineReadout } from '../hud/readouts';
-import { hasCapability, resolvePlatform, type Platform } from '../platform/index';
-import { freePlayRun, msRemainingInWeek, weeklyRunAt, type RunSetup } from '../weekly/index';
+import {
+  asRemotePlatform,
+  hasCapability,
+  hasSubmissionState,
+  resolvePlatform,
+  SUBMISSION_STATE,
+  type Platform,
+  type SubmissionState,
+} from '../platform/index';
+import {
+  freePlayRun,
+  msRemainingInWeek,
+  weeklyRunAt,
+  weeklySpawnSeed,
+  type RunSetup,
+} from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
 import {
   canRename,
@@ -138,6 +153,7 @@ export class VigilScene extends Phaser.Scene {
   private platform: Platform | null = null;
   private weeklyBoard: WeeklyBoardController | null = null;
   private boardScope: LeaderboardScope = defaultLeaderboardScope();
+  private submissionState: SubmissionState = SUBMISSION_STATE.SENT;
   private currentBoardWeekKey: string | null = null;
 
   private shareStatus: ShareStatus = SHARE_STATUS.READY;
@@ -259,6 +275,7 @@ export class VigilScene extends Phaser.Scene {
     this.weekTickShown = -1;
     this.currentBoardWeekKey = null;
     this.shareStatus = SHARE_STATUS.READY;
+    this.submissionState = SUBMISSION_STATE.SENT;
 
     // §15 — read here, with the best score, and never again: both are storage
     // reads, and the restart path is not allowed either of them.
@@ -270,7 +287,8 @@ export class VigilScene extends Phaser.Scene {
   create(): void {
     this.host = readHostContext(this);
     this.platform = this.host?.platform ?? resolvePlatform(undefined);
-    this.boardScope = defaultLeaderboardScope();
+    this.boardScope = defaultLeaderboardScope(this.platform);
+    this.syncSubmissionState();
 
     if (this.platform !== null && hasCapability(this.platform, 'leaderboard')) {
       this.weeklyBoard = new WeeklyBoardController(this.platform, {
@@ -411,6 +429,10 @@ export class VigilScene extends Phaser.Scene {
     this.host?.pause.clear();
     this.paused = false;
     this.beam.disarmFocus(this.focusHeld);
+    if (this.platform !== null) {
+      asRemotePlatform(this.platform)?.notifyResumed();
+    }
+    this.syncSubmissionState();
     this.emitPause();
   }
 
@@ -868,21 +890,35 @@ export class VigilScene extends Phaser.Scene {
     if (platform === null || !hasCapability(platform, 'leaderboard')) {
       return;
     }
+    const weekKey = this.runWeek?.key;
+    if (weekKey === undefined) {
+      return;
+    }
 
     const entry = {
       score: this.score,
       mode: this.mode,
-      weekKey: this.runWeek?.key ?? null,
+      weekKey,
+      durationMs: Math.max(0, Math.floor(this.elapsedSeconds * MS_PER_SECOND)),
+      banished: this.banished,
+      seed: String(weeklySpawnSeed(weekKey)),
+      gameVersion: PLATFORM_GAME_VERSION,
       displayName: this.displayName.name,
     } as const;
 
-    void platform.submitScore(entry).catch(() => {
-      // Local fallback and offline paths are non-fatal by design.
-    });
+    void platform
+      .submitScore(entry)
+      .catch(() => {
+        // Local fallback and offline paths are non-fatal by design.
+      })
+      .finally(() => {
+        this.syncSubmissionState();
+        this.emitLeaderboard();
+      });
 
-    if (this.runWeek !== null) {
-      this.refreshWeeklyBoard(this.runWeek.key, true);
-    }
+    this.syncSubmissionState();
+
+    this.refreshWeeklyBoard(weekKey, true);
   }
 
   private onShareRequested(): void {
@@ -960,10 +996,20 @@ export class VigilScene extends Phaser.Scene {
       weekKey: board?.weekKey ?? null,
       scope: this.boardScope,
       status,
+      submissionState: this.submissionState,
       rows: board?.rows ?? [],
       playerRow: board?.playerRow ?? null,
     };
     this.events.emit(VIGIL_EVENTS.LEADERBOARD_CHANGED, payload);
+  }
+
+  private syncSubmissionState(): void {
+    const platform = this.platform;
+    if (platform !== null && hasSubmissionState(platform)) {
+      this.submissionState = platform.getSubmissionState();
+      return;
+    }
+    this.submissionState = SUBMISSION_STATE.SENT;
   }
 
   private emitShare(): void {

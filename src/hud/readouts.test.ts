@@ -26,6 +26,7 @@ import {
   type ScorePayload,
   type WeekPayload,
 } from '../scenes/events';
+import { SUBMISSION_STATE } from '../platform/index';
 import { resolveWeekAt } from '../weekly/index';
 import { formatSeconds } from './layout';
 import { leaderboardReadout, scoreReadouts, shareLineReadout, weekReadout } from './readouts';
@@ -348,6 +349,7 @@ function boardPayload(overrides: Partial<LeaderboardPayload> = {}): LeaderboardP
     weekKey: '2026-W45',
     scope: LEADERBOARD_SCOPE.DEVICE,
     status: LEADERBOARD_STATUS.SHOWN,
+    submissionState: SUBMISSION_STATE.SENT,
     rows: [],
     playerRow: null,
     ...overrides,
@@ -373,6 +375,17 @@ describe('weekly board readout', () => {
 
   it('returns an empty row block when there are no scores yet', () => {
     assert.equal(leaderboardReadout(boardPayload()), '');
+  });
+
+  it('states queued submission status in plain words', () => {
+    assert.equal(
+      strings.leaderboardStateLine(
+        LEADERBOARD_STATUS.SHOWN,
+        LEADERBOARD_SCOPE.WEEKLY,
+        SUBMISSION_STATE.QUEUED,
+      ),
+      'Score queued offline. It will submit when the game reconnects.',
+    );
   });
 });
 

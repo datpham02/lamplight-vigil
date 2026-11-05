@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line with no dialog.
 - Weekly-board controller tests covering hanging and rejecting leaderboard
   promises, plus cached-last-known behaviour and out-of-top own-rank display.
+- `RemotePlatform` over an injected `PlatformTransport`, with per-call timeout,
+  no built-in network implementation, and an offline submit queue persisted
+  under `lamplight-vigil.*` storage keys.
+- Submission-state tracking (`sent`, `queued`, `failed`) surfaced to the weekly
+  board state line so game-over can explicitly say when a score is queued.
+- Remote-platform tests for success, reject, timeout/hang, slow-within-timeout,
+  queue replay on boot/resume, no resend after success, and queue-size capping.
 
 ### Changed
 
@@ -26,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Laravel + MySQL application, reached only through the platform adapter, with
   hosting still pending — in `docs/vision.md` §5b and `docs/design.md`, and
   added `docs/platform-contract.md` holding Game Platform Contract v1.
+- Extended score-submission payloads with contract v1 fields
+  (`durationMs`, `banished`, `seed`, `gameVersion`) from scene to platform,
+  including `LocalPlatform` storage and tests.
+- Leaderboard scope now defaults to `WEEKLY` only when a `RemotePlatform` is
+  actually injected; local fallback keeps the "this device's board" wording.
 
 ## [0.1.0] - 2026-11-04
 

@@ -70,10 +70,54 @@ describe('selectBoardRows', () => {
   it('keeps top N rows and keeps own row when outside top N', () => {
     const picked = selectBoardRows(
       [
-        { playerId: 'p1', displayName: 'A', score: 100, mode: 'weekly', weekKey: '2026-W45', submittedAtMs: 1 },
-        { playerId: 'p2', displayName: 'B', score: 90, mode: 'weekly', weekKey: '2026-W45', submittedAtMs: 2 },
-        { playerId: 'p3', displayName: 'C', score: 80, mode: 'weekly', weekKey: '2026-W45', submittedAtMs: 3 },
-        { playerId: 'me', displayName: 'Me', score: 70, mode: 'weekly', weekKey: '2026-W45', submittedAtMs: 4 },
+        {
+          playerId: 'p1',
+          displayName: 'A',
+          score: 100,
+          mode: 'weekly',
+          weekKey: '2026-W45',
+          durationMs: 10_000,
+          banished: 10,
+          seed: 'seed-1',
+          gameVersion: '0.1.0',
+          submittedAtMs: 1,
+        },
+        {
+          playerId: 'p2',
+          displayName: 'B',
+          score: 90,
+          mode: 'weekly',
+          weekKey: '2026-W45',
+          durationMs: 10_000,
+          banished: 9,
+          seed: 'seed-1',
+          gameVersion: '0.1.0',
+          submittedAtMs: 2,
+        },
+        {
+          playerId: 'p3',
+          displayName: 'C',
+          score: 80,
+          mode: 'weekly',
+          weekKey: '2026-W45',
+          durationMs: 10_000,
+          banished: 8,
+          seed: 'seed-1',
+          gameVersion: '0.1.0',
+          submittedAtMs: 3,
+        },
+        {
+          playerId: 'me',
+          displayName: 'Me',
+          score: 70,
+          mode: 'weekly',
+          weekKey: '2026-W45',
+          durationMs: 10_000,
+          banished: 7,
+          seed: 'seed-1',
+          gameVersion: '0.1.0',
+          submittedAtMs: 4,
+        },
       ],
       3,
       'me',
@@ -111,7 +155,20 @@ describe('WeeklyBoardController', () => {
   it('keeps last-known rows when a later refresh for the same week fails', async () => {
     const platform = new FakePlatform();
     platform.boards.set('2026-W45', {
-      entries: [{ playerId: 'p1', displayName: 'A', score: 100, mode: 'weekly', weekKey: '2026-W45', submittedAtMs: 1 }],
+      entries: [
+        {
+          playerId: 'p1',
+          displayName: 'A',
+          score: 100,
+          mode: 'weekly',
+          weekKey: '2026-W45',
+          durationMs: 10_000,
+          banished: 10,
+          seed: 'seed-1',
+          gameVersion: '0.1.0',
+          submittedAtMs: 1,
+        },
+      ],
     });
     const board = new WeeklyBoardController(platform);
 

@@ -459,6 +459,18 @@ export const PLATFORM_PLAYER_STORAGE_KEY = 'lamplight-vigil.platform.player';
 /** OV-4 — local fallback leaderboard rows store. */
 export const PLATFORM_LEADERBOARD_STORAGE_KEY = 'lamplight-vigil.platform.leaderboard';
 
+/** OV-7b — queued remote submissions for retry across boots/resumes. */
+export const PLATFORM_SUBMIT_QUEUE_STORAGE_KEY = 'lamplight-vigil.platform.submit-queue';
+
+/** OV-7b — oldest-first cap for queued remote submissions. */
+export const PLATFORM_SUBMIT_QUEUE_MAX_SIZE = 64;
+
+/** OV-7b — per transport call timeout in milliseconds. */
+export const PLATFORM_TRANSPORT_TIMEOUT_MS = 700;
+
+/** OV-7b — score payload field for contract v1 submissions. */
+export const PLATFORM_GAME_VERSION = '0.1.0';
+
 // ---------------------------------------------------------------------------
 // §15 Display name (`ui-designer`)
 // ---------------------------------------------------------------------------
