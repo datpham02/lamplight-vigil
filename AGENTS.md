@@ -87,6 +87,15 @@ module:
 `embed.html` is the harness for checking all of that by hand: two games on one
 page, in differently-shaped boxes, beside an ordinary text field.
 
+## Platform adapter boundary
+
+- Gameplay and scenes may only talk to `src/platform`'s `Platform` interface.
+- No module may import a backend/provider SDK directly.
+- If no platform is injected at `mount()`, the game must run on `LocalPlatform`
+  (localStorage only, no network) without losing local best-score behavior.
+- Code may call optional platform features only when their capability is present
+  in `platform.capabilities`.
+
 ## Folder ownership
 
 ```
