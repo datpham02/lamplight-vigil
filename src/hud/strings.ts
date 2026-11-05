@@ -28,6 +28,7 @@ import {
   type RunMode,
   type ShareStatus,
 } from '../scenes/events';
+import { SUBMISSION_STATE, type SubmissionState } from '../platform/index';
 import type { ResetCountdown } from './layout';
 
 /** One row of the title screen's control table: the key, and what it does. */
@@ -359,9 +360,22 @@ export const newBestLine = (best: string): string => `NEW BEST ${best}`;
 export const leaderboardHeading = (scope: LeaderboardScope): string =>
   scope === LEADERBOARD_SCOPE.DEVICE ? "THIS DEVICE'S WEEKLY BOARD" : 'WEEKLY BOARD';
 
-export const leaderboardStateLine = (status: LeaderboardStatus, scope: LeaderboardScope): string => {
+export const leaderboardStateLine = (
+  status: LeaderboardStatus,
+  scope: LeaderboardScope,
+  submissionState: SubmissionState,
+  showSubmissionState = true,
+): string => {
   const board =
     scope === LEADERBOARD_SCOPE.DEVICE ? "this device's board" : 'the weekly board';
+
+  if (showSubmissionState && submissionState === SUBMISSION_STATE.QUEUED) {
+    return 'Score queued offline. It will submit when the game reconnects.';
+  }
+
+  if (showSubmissionState && submissionState === SUBMISSION_STATE.FAILED) {
+    return 'Score submit failed.';
+  }
 
   switch (status) {
     case LEADERBOARD_STATUS.LOADING:

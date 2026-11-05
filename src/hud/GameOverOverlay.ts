@@ -258,7 +258,10 @@ export class GameOverOverlay {
 
     setTextIfChanged(this.boardHeading, strings.leaderboardHeading(payload.scope));
     setTextIfChanged(this.boardRows, leaderboardReadout(payload));
-    setTextIfChanged(this.boardState, strings.leaderboardStateLine(payload.status, payload.scope));
+    setTextIfChanged(
+      this.boardState,
+      strings.leaderboardStateLine(payload.status, payload.scope, payload.submissionState),
+    );
   }
 
   public showShare(payload: SharePayload): void {

@@ -30,6 +30,7 @@ import Phaser from 'phaser';
 import { BACKGROUND_COLOR, RENDER_HEIGHT, RENDER_WIDTH } from '../config/index';
 import type { Platform } from '../platform/index';
 import { resolvePlatform } from '../platform/index';
+import type { PlatformTransport } from '../platform/index';
 import { VigilScene } from '../scenes/VigilScene';
 import { prepareContainer, resolveContainer } from './container';
 import { Disposer } from './disposer';
@@ -53,6 +54,11 @@ export interface MountOptions {
    * Omit to run with the local fallback (localStorage only, no network).
    */
   readonly platform?: Platform;
+  /**
+   * Optional remote transport. When present (and `platform` is absent), the
+   * game resolves a RemotePlatform around this transport.
+   */
+  readonly transport?: PlatformTransport;
 }
 
 /** One mounted game. The only handle a host needs. */
@@ -108,7 +114,10 @@ export function mount(options: MountOptions): VigilGame {
   });
 
   const host: HostContext = {
-    platform: resolvePlatform(options.platform),
+    platform: resolvePlatform({
+      platform: options.platform ?? null,
+      transport: options.transport ?? null,
+    }),
     gesture,
     pause,
     ownsEventTarget: (target) => target instanceof Node && container.contains(target),

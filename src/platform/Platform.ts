@@ -18,6 +18,10 @@ export interface PlatformScoreEntry {
   readonly score: number;
   readonly mode: string;
   readonly weekKey: string | null;
+  readonly durationMs: number;
+  readonly banished: number;
+  readonly seed: string;
+  readonly gameVersion: string;
   readonly displayName?: string;
   readonly submittedAtMs?: number;
 }
@@ -29,6 +33,10 @@ export interface PlatformLeaderboardEntry {
   readonly score: number;
   readonly mode: string;
   readonly weekKey: string | null;
+  readonly durationMs: number;
+  readonly banished: number;
+  readonly seed: string;
+  readonly gameVersion: string;
   readonly submittedAtMs: number;
 }
 
@@ -65,6 +73,17 @@ export interface Entitlement {
 
 export type PlatformUnsubscribe = () => void;
 
+export const SUBMISSION_STATE = {
+  SENT: 'sent',
+  QUEUED: 'queued',
+  FAILED: 'failed',
+} as const;
+export type SubmissionState = (typeof SUBMISSION_STATE)[keyof typeof SUBMISSION_STATE];
+
+export interface PlatformSubmissionStateReadable {
+  getSubmissionState(): SubmissionState;
+}
+
 /**
  * The only interface gameplay is allowed to call for online features.
  *
@@ -81,6 +100,12 @@ export interface Platform {
   showRewardedAd(placement: string): Promise<RewardedAdResult>;
   purchase(sku: string): Promise<PurchaseReceipt>;
   getEntitlements(): Promise<readonly Entitlement[]>;
+}
+
+export function hasSubmissionState(
+  platform: Platform,
+): platform is Platform & PlatformSubmissionStateReadable {
+  return typeof (platform as Partial<PlatformSubmissionStateReadable>).getSubmissionState === 'function';
 }
 
 /** True only when a capability is present on a platform instance. */

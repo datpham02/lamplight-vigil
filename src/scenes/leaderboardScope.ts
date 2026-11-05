@@ -1,9 +1,13 @@
+import { asRemotePlatform, type Platform } from '../platform/index';
 import { LEADERBOARD_SCOPE, type LeaderboardScope } from './events';
 
 /**
- * SOU-14 ships with LocalPlatform only, so weekly board wording defaults to
- * "this device's board" until a backend-capable platform path is added.
+ * Device wording for local fallback; weekly wording only when a RemotePlatform
+ * is injected by the host.
  */
-export function defaultLeaderboardScope(): LeaderboardScope {
-  return LEADERBOARD_SCOPE.DEVICE;
+export function defaultLeaderboardScope(platform: Platform | null = null): LeaderboardScope {
+  if (platform === null) {
+    return LEADERBOARD_SCOPE.DEVICE;
+  }
+  return asRemotePlatform(platform) !== null ? LEADERBOARD_SCOPE.WEEKLY : LEADERBOARD_SCOPE.DEVICE;
 }

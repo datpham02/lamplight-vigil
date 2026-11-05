@@ -301,7 +301,10 @@ export class TitleOverlay {
 
     setTextIfChanged(this.boardHeading, strings.leaderboardHeading(payload.scope));
     setTextIfChanged(this.boardRows, leaderboardReadout(payload));
-    setTextIfChanged(this.boardState, strings.leaderboardStateLine(payload.status, payload.scope));
+    setTextIfChanged(
+      this.boardState,
+      strings.leaderboardStateLine(payload.status, payload.scope, payload.submissionState, false),
+    );
   }
 
   public showShare(payload: SharePayload): void {

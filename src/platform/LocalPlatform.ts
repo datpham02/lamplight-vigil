@@ -176,6 +176,10 @@ export function createLocalPlatform(options: LocalPlatformOptions = {}): Platfor
         score: Math.max(0, Math.floor(entry.score)),
         mode: entry.mode,
         weekKey: entry.weekKey,
+        durationMs: Math.max(0, Math.floor(entry.durationMs)),
+        banished: Math.max(0, Math.floor(entry.banished)),
+        seed: entry.seed,
+        gameVersion: entry.gameVersion,
         submittedAtMs,
       };
 

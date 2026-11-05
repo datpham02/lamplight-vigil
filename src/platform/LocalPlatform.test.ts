@@ -7,6 +7,12 @@ import {
   PLATFORM_PLAYER_STORAGE_KEY,
 } from '../config/index';
 import { createLocalPlatform } from './LocalPlatform';
+import { RemotePlatform } from './RemotePlatform';
+import {
+  PLATFORM_TRANSPORT_OPERATION,
+  type PlatformTransportRequest,
+  type PlatformTransport,
+} from './PlatformTransport';
 import { resolvePlatform } from './gateway';
 
 class FakeStorage {
@@ -25,6 +31,23 @@ describe('resolvePlatform', () => {
   it('uses local fallback when no platform is injected', () => {
     const platform = resolvePlatform(undefined);
     assert.equal(platform.capabilities.has('leaderboard'), true);
+  });
+
+  it('builds RemotePlatform when a transport is injected', () => {
+    const transport: PlatformTransport = {
+      send: async <TResponse>(request: PlatformTransportRequest) => {
+        if (request.operation === PLATFORM_TRANSPORT_OPERATION.GET_PLAYER) {
+          return { player: { id: 'p1', displayName: 'Lampkeeper' } } as TResponse;
+        }
+        if (request.operation === PLATFORM_TRANSPORT_OPERATION.GET_LEADERBOARD) {
+          return { leaderboard: { entries: [] } } as TResponse;
+        }
+        return undefined as TResponse;
+      },
+    };
+
+    const platform = resolvePlatform({ transport });
+    assert.equal(platform instanceof RemotePlatform, true);
   });
 });
 
@@ -70,9 +93,36 @@ describe('LocalPlatform', () => {
     const storage = new FakeStorage();
     const platform = createLocalPlatform({ storage, now: () => 500, random: () => 0.1 });
 
-    await platform.submitScore({ score: 20, mode: 'weekly', weekKey: '2026-W10', submittedAtMs: 2000 });
-    await platform.submitScore({ score: 50, mode: 'weekly', weekKey: '2026-W10', submittedAtMs: 1000 });
-    await platform.submitScore({ score: 35, mode: 'free-play', weekKey: null, submittedAtMs: 3000 });
+    await platform.submitScore({
+      score: 20,
+      mode: 'weekly',
+      weekKey: '2026-W10',
+      durationMs: 20_000,
+      banished: 7,
+      seed: 'seed-a',
+      gameVersion: '0.1.0',
+      submittedAtMs: 2000,
+    });
+    await platform.submitScore({
+      score: 50,
+      mode: 'weekly',
+      weekKey: '2026-W10',
+      durationMs: 25_000,
+      banished: 9,
+      seed: 'seed-b',
+      gameVersion: '0.1.0',
+      submittedAtMs: 1000,
+    });
+    await platform.submitScore({
+      score: 35,
+      mode: 'free-play',
+      weekKey: null,
+      durationMs: 35_000,
+      banished: 12,
+      seed: 'seed-c',
+      gameVersion: '0.1.0',
+      submittedAtMs: 3000,
+    });
 
     const weekly = await platform.getLeaderboard({ limit: 10, mode: 'weekly', weekKey: '2026-W10' });
     assert.deepEqual(
@@ -89,7 +139,15 @@ describe('LocalPlatform', () => {
   it('keeps gameplay alive when storage is unavailable', async () => {
     const platform = createLocalPlatform({ storage: null, now: () => 1, random: () => 0.2 });
 
-    await platform.submitScore({ score: 99, mode: 'weekly', weekKey: '2026-W10' });
+    await platform.submitScore({
+      score: 99,
+      mode: 'weekly',
+      weekKey: '2026-W10',
+      durationMs: 40_000,
+      banished: 11,
+      seed: 'seed-z',
+      gameVersion: '0.1.0',
+    });
     const board = await platform.getLeaderboard({ limit: 5 });
 
     assert.deepEqual(board.entries, []);

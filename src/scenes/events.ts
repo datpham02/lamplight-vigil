@@ -12,6 +12,7 @@
 // implementation.
 
 import type { NameNotice } from './nameEdit';
+import type { SubmissionState } from '../platform/index';
 
 /**
  * The name editor's vocabulary of complaints (`docs/design.md` §15.3), named
@@ -218,6 +219,7 @@ export interface LeaderboardPayload {
   readonly weekKey: string | null;
   readonly scope: LeaderboardScope;
   readonly status: LeaderboardStatus;
+  readonly submissionState: SubmissionState;
   readonly rows: readonly LeaderboardRowPayload[];
   readonly playerRow: LeaderboardRowPayload | null;
 }
