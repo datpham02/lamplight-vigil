@@ -19,7 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line with no dialog.
 - Weekly-board controller tests covering hanging and rejecting leaderboard
   promises, plus cached-last-known behaviour and out-of-top own-rank display.
-  
+
+### Changed
+
+- Recorded the Board's D4 decision of 2026-11-05 — the backend is the website's
+  Laravel + MySQL application, reached only through the platform adapter, with
+  hosting still pending — in `docs/vision.md` §5b and `docs/design.md`, and
+  added `docs/platform-contract.md` holding Game Platform Contract v1.
 
 ## [0.1.0] - 2026-11-04
 

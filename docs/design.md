@@ -1291,12 +1291,14 @@ criteria 18, 26 and 42 move with them. No other part of this section changes, an
 `src/enemies` all cite "§13" by number for the three sound cues. Renumbering an
 anchor to make a table of contents tidier is not worth a stale reference.*
 
-**D4 — provider and hosting — is still pending with the Board.** Nothing in this
-section calls a backend, names one, or assumes one exists. Everything here
-resolves on the device, from the device clock and the shipped `src/config`, with
-no network access of any kind. The seed is specified as a pure function precisely
-so that whatever D4 lands on can recompute the same answer later and verify a
-submission without this document changing.
+**D4 is decided (2026-11-05): the backend is the website's Laravel + MySQL
+application, reached only through the platform adapter** (`docs/vision.md` §5b,
+[`docs/platform-contract.md`](./platform-contract.md)). Hosting is still
+pending. None of that changes this section: nothing here calls a backend or
+assumes one is reachable. Everything resolves on the device, from the device
+clock and the shipped `src/config`, with no network access of any kind. The seed
+is specified as a pure function precisely so that the Laravel side can recompute
+the same answer later and verify a submission without this document changing.
 
 ### 14.1 What a weekly modifier is, and what it is not
 
@@ -1471,8 +1473,9 @@ client resolves the key locally so that it can configure and *display* the run i
 is about to play — §14.8 and criterion 20 require a weekly run to start with the
 network blocked — but its copy is evidence, never authority: a submission carries
 the resolved `id` and value it was played under (§14.4) and the server revalidates
-them against its own key. Nothing here names or assumes a provider; D4 is still
-pending.
+them against its own key. The server is the website's Laravel application (D4,
+2026-11-05); nothing here calls it, and nothing here depends on which server it
+is.
 
 **Pillar 2 — the week is not hidden state.** The title screen states the week key
 and the time remaining in it (`msRemainingInWeek`), in plain words, before a run
@@ -2004,8 +2007,13 @@ across the whole document.
 Milestone: **Online Vigil** (planned in GAM-16, approved by the Board
 2026-11-04). Owner: `ui-designer`. This is task OV-8.
 
-**D4 — provider and hosting — is still pending with the Board.** Nothing in this
-section calls a backend, names one, or assumes one exists. The name is captured
+**D4 is decided (2026-11-05): the backend is the website's Laravel + MySQL
+application, reached only through the platform adapter** (`docs/vision.md` §5b,
+[`docs/platform-contract.md`](./platform-contract.md)). Hosting is still
+pending. Nothing in this section calls a backend or assumes one is reachable.
+The deny-list and the rename limit named below are enforced server-side by
+Laravel ([`docs/platform-contract.md`](./platform-contract.md) §6); this section
+is the client half only. The name is captured
 on the device and stored on the device. The charset, the length bounds and the
 weekly rename interval are the rules a server will enforce later; they are held
 here as a **convenience**, so that a name is never typed, carried for a week and
@@ -2233,5 +2241,5 @@ Continuing the numbering in §12, §12.1 and §14.10.
 | 37 | The name is editable from the title screen, once a week | Rename, confirm the title row says when the next one is, confirm `N` no longer opens the panel, and confirm every key starts a run again. Committing an unchanged name does not start the cooldown |
 | 38 | The weekly limit is not hidden state | The cooldown is on the title row whenever it is running, and the limit itself is on the panel whenever it is open |
 | 39 | The editor is keyboard-operable and is not a trap | Open it, type, press `TAB`: focus leaves the game and the draft survives. Press `ESC` from any state: the panel closes and the committed name is unchanged |
-| 40 | Nothing here touches the network | Load with the network blocked and do all of the above. No request is made, and the repository names no provider (`docs/vision.md` B1) |
+| 40 | Nothing here touches the network | Load with the network blocked and do all of the above. No request is made, and nothing in this feature reaches the backend from outside `src/platform/` (`docs/vision.md` B1, as replaced on 2026-11-05) |
 | 41 | The panel never appears during play | Pillar 2 and B6's neighbour: the field is on the title screen only — never during PLAYING, never on game over, and never over the power, score or best-score readouts |
