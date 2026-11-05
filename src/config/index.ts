@@ -448,6 +448,18 @@ export const SCORE_PER_BANISH = 25;
 export const SCORE_STORAGE_KEY = 'lamplight-vigil.best-score';
 
 // ---------------------------------------------------------------------------
+// Platform adapter — OV-4
+// ---------------------------------------------------------------------------
+//
+// Local fallback storage keys, namespaced the same way as §8 and §15.
+
+/** OV-4 — local fallback player identity store. */
+export const PLATFORM_PLAYER_STORAGE_KEY = 'lamplight-vigil.platform.player';
+
+/** OV-4 — local fallback leaderboard rows store. */
+export const PLATFORM_LEADERBOARD_STORAGE_KEY = 'lamplight-vigil.platform.leaderboard';
+
+// ---------------------------------------------------------------------------
 // §15 Display name (`ui-designer`)
 // ---------------------------------------------------------------------------
 //

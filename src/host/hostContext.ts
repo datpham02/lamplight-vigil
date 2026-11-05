@@ -14,6 +14,7 @@
 
 import type Phaser from 'phaser';
 
+import type { Platform } from '../platform/index';
 import type { Disposable } from './disposer';
 import type { GestureGate } from './gestureGate';
 import type { PauseSignal } from './pauseSignal';
@@ -23,6 +24,8 @@ export const HOST_CONTEXT_KEY = 'vigil:host-context';
 
 /** What the mount offers the game running inside it. */
 export interface HostContext {
+  /** Platform adapter used by gameplay code. */
+  readonly platform: Platform;
   /** Opens on the first user gesture inside the container. */
   readonly gesture: GestureGate;
   /** Raised while the page is blurred or hidden. */
@@ -72,6 +75,7 @@ function isHostContext(value: unknown): value is HostContext {
   const candidate = value as Partial<HostContext>;
 
   return (
+    candidate.platform !== undefined &&
     typeof candidate.addDisposable === 'function' &&
     typeof candidate.ownsEventTarget === 'function' &&
     candidate.gesture !== undefined &&
