@@ -15,7 +15,7 @@ boundary stays readable as what it was. One amendment is in force:
 
 | Amendment | Decision | Date | Status |
 |---|---|---|---|
-| [§5b — "Online Vigil"](#5b-milestone-boundary--online-vigil) | GAM-16 | 2026-11-04 | Approved scope, except D4 (provider and hosting), which is pending |
+| [§5b — "Online Vigil"](#5b-milestone-boundary--online-vigil) | GAM-16 | 2026-11-04 | Approved scope. D4's backend half was decided 2026-11-05 (see §5b); hosting is still pending |
 
 An amendment section is approved scope and is **not** marked **[PROPOSAL]**.
 
@@ -216,12 +216,33 @@ rewriting it would make the project's history unreadable. The concept's §4
 sentence *"no backend, no accounts, no online features"* carries a dated
 annotation pointing here.
 
-> **One decision is still open.** **D4 — provider and hosting — is pending with
-> the Board.** No provider, vendor, SDK or service name appears in this section,
-> and nothing built against it may name or assume one. Until D4 lands, the
-> backend is reachable only as the abstract capability described in item 5
-> below. Any task that needs a concrete provider is blocked on D4, not on this
-> document.
+> **ANNOTATION — 2026-11-05. D4 is decided, in part.** The sentence this box
+> used to carry — *"D4 — provider and hosting — is pending with the Board"* — no
+> longer describes the project. The Board decided the **backend** half of D4 on
+> **2026-11-05**: the backend is the Soucean website's **Laravel + MySQL**
+> application (ADR-021), reached from this game *only* through the `Platform`
+> adapter merged in SOU-1, and the website embeds the game in an **iframe with
+> `postMessage`**. The Supabase / Cloudflare plan sketched in the original
+> GAM-16 OV-0 and OV-6 is **dropped**; server-side schema, validation and the
+> submit endpoint belong to the Web department, not to this repository. The
+> contract this game builds against is [`docs/platform-contract.md`](./platform-contract.md),
+> contract version 1. The bar on naming a provider (B1) expires with this
+> annotation — see [§5b.3](#5b3-boundary-acceptance-criteria). Items 5, 6 and 10
+> of §5b.1 below are rewritten to match; the rest of the amendment is unchanged.
+
+> **Two decisions are still open.**
+>
+> 1. **Hosting.** Where the build and the Laravel application run is still
+>    pending with the Board (candidate: a VPS). There is no public deploy target
+>    yet, so nothing in this milestone may assume one, and the deploy half of
+>    item 10 stays unbuilt until it lands.
+> 2. **The iframe message schema.** How the parent page and the game talk across
+>    the frame — the handshake that carries a short-lived login token — is fixed
+>    in **contract version 2**, together with the website's first implementation.
+>    Until then the game is mountable and host-friendly, but speaks no parent
+>    protocol.
+>
+> A task that needs either is blocked on that decision, not on this document.
 
 ### 5b.1 In
 
@@ -235,11 +256,20 @@ annotation pointing here.
    game-over screens only**, plus each player's personal all-time best.
 4. **An online player identity** — anonymous on creation, optionally linked to a
    real account later. **Display name only.**
-5. **A hosted backend-as-a-service** — no self-run server. Reached *only*
-   through the platform adapter defined in GAM-16 (see item 9). Provider is D4
-   and is pending.
+5. **The website's Laravel backend** — the Soucean site's Laravel + MySQL
+   application (D4, 2026-11-05, ADR-021), not a backend-as-a-service and not a
+   server this repository runs. Reached *only* through the platform adapter
+   defined in GAM-16 (see item 9) and specified in
+   [`docs/platform-contract.md`](./platform-contract.md) §1. The schema, the
+   validation and the submit endpoint are the Web department's work, not this
+   repository's; this repository owns the client side of the adapter and
+   nothing behind it.
+   *(Supersedes the GAM-16 line "a hosted backend-as-a-service — no self-run
+   server; provider is D4 and is pending".)*
 6. **Public static hosting** of the build, and the deploy step that puts it
-   there. The hosting target is part of D4 and is pending.
+   there — **hosting is pending.** The Board has not chosen where the build runs
+   (candidate: a VPS), so there is no deploy target and nothing here may assume
+   one. The item stays in scope; only its target is undecided.
 7. **Offline-first as a requirement, not a nicety.** The game stays fully
    playable with the network off or the backend down. This is **new scope that
    must be built and tested**, not an assumed property of the existing build.
@@ -247,12 +277,16 @@ annotation pointing here.
 9. **Website-readiness contract** — the platform adapter, `mount()` /
    `destroy()`, a game manifest, and host-friendly behaviour, as specified in
    GAM-16.
-10. **CI, bounded.** CI moves in **only** as far as build-and-deploy on merge to
-    `main`, **gated on `npm run build` and `npm test` passing** — the existing
-    commands, nothing new. Public hosting forces deployment in, and without that
-    gate the first broken merge is live to strangers. Anything beyond that gate
-    (matrix builds, new test runners, release automation, status bots) is out of
-    this milestone.
+10. **CI, bounded.** **The gate is build + test:** `npm run build` and
+    `npm test`, the existing commands, nothing new. **Deploy waits for the
+    hosting decision** — until the Board names a hosting target (item 6), CI
+    builds and tests on merge to `main` and deploys nowhere, because there is
+    nowhere to deploy to. When hosting lands, deploy-on-merge-to-`main` is added
+    behind that same gate: without it the first broken merge is live to
+    strangers. Anything beyond that gate (matrix builds, new test runners,
+    release automation, status bots) is out of this milestone.
+    *(Supersedes the GAM-16 line that moved build-**and-deploy** in together;
+    the gate is unchanged, the deploy half is deferred.)*
 
 ### 5b.2 Out — reaffirmed
 
@@ -283,7 +317,7 @@ A failure here is a scope breach and is filed against the milestone.
 
 | # | Criterion | How QA tests it |
 |---|---|---|
-| B1 | No provider is named while D4 is pending | Search the repository (`src/`, `tools/`, `docs/`, config, CI files, `package.json`) for any backend or hosting vendor, SDK or service name. Zero hits outside a document that explicitly records D4 as pending. Any hit is a breach of the D4 gate. |
+| B1 | **Expired 2026-11-05 — replaced.** Backend access is confined to `src/platform/` | *The old B1 ("no provider is named while D4 is pending") expired when the Board decided D4; its own note below always said it would. Its replacement:* search `src/`, `tools/`, config, CI files and `package.json` for a backend base URL, an HTTP client call (`fetch`, `XMLHttpRequest`, `axios`, WebSocket) or any backend SDK dependency. Zero hits outside `src/platform/`. Naming Laravel, MySQL or the website is no longer a breach anywhere; reaching them from outside the adapter is. |
 | B2 | Backend access is adapter-only | Every network call in `src/` originates inside the platform adapter module. No `fetch`, `XMLHttpRequest`, WebSocket or vendor SDK call appears in `src/beam`, `src/enemies`, `src/hud`, `src/scenes` or `src/main.ts`. |
 | B3 | Offline-first holds | With the network disabled in devtools, and again with the backend unreachable: title → play → lose → restart completes, best score still persists, and no error dialog, hang, or wait longer than the configured timeout blocks play. Repeat with the network restored mid-run; the run must not be disturbed. |
 | B4 | Free Play is unseeded and unranked | Two Free Play runs started in the same week produce different crawler patterns, and neither submits a score to the weekly board. |
@@ -299,8 +333,15 @@ A failure here is a scope breach and is filed against the milestone.
 | B14 | Restart stays instant on a degraded network | With the connection throttled to a slow profile, and again with the backend responding but delayed past the configured timeout, press R from game over: the first playable frame still arrives in ≤ 1.0 s, with no intermediate screen and no wait on a score submission or board fetch. Pending network work never sits on the restart path. (§6 criterion 1, pillar 3.) |
 | B15 | Game over stays legible with the board on it | With the weekly board present and populated, a tester who has just died still names what killed them within one second of the game-over screen appearing. The board must not be the first thing that takes their eye. (§6 criterion 6, pillar 2.) |
 
-**Note on B1.** This check expires when the Board decides D4. It is a gate on
-the pending decision, not a permanent rule.
+**Note on B1.** The original check said it expires when the Board decides D4,
+and it has: D4's backend half was decided on **2026-11-05**, so the no-provider
+gate is spent and the repository may name Laravel and MySQL. What the gate was
+really protecting — that gameplay code never reaches the network itself — is
+permanent, so B1 is replaced rather than struck, and now tests the boundary
+directly. B2 is the sibling check from the gameplay side (no network call
+outside the adapter); B1 is the dependency-and-URL side of the same rule. Both
+are stated in [`docs/platform-contract.md`](./platform-contract.md) §1 as the
+contract's own review rule.
 
 **Note on B14 and B15.** These two are pillar checks, not scope checks. The
 amendment puts the weekly board, a score submission and a personal best onto the
