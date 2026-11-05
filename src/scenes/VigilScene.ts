@@ -46,11 +46,11 @@ import {
   typeIntoName,
   type NameEditState,
 } from './nameEdit';
+import { defaultLeaderboardScope } from './leaderboardScope';
 import { RestartClock } from './restartClock';
 import { runScore } from './score';
 import { VigilFeedback } from './VigilFeedback';
 import {
-  LEADERBOARD_SCOPE,
   LEADERBOARD_STATUS,
   RUN_MODE,
   RUN_STATE,
@@ -137,7 +137,7 @@ export class VigilScene extends Phaser.Scene {
   private host: HostContext | null = null;
   private platform: Platform | null = null;
   private weeklyBoard: WeeklyBoardController | null = null;
-  private boardScope: LeaderboardScope = LEADERBOARD_SCOPE.WEEKLY;
+  private boardScope: LeaderboardScope = defaultLeaderboardScope();
   private currentBoardWeekKey: string | null = null;
 
   private shareStatus: ShareStatus = SHARE_STATUS.READY;
@@ -270,7 +270,7 @@ export class VigilScene extends Phaser.Scene {
   create(): void {
     this.host = readHostContext(this);
     this.platform = this.host?.platform ?? resolvePlatform(undefined);
-    this.boardScope = this.host === null ? LEADERBOARD_SCOPE.DEVICE : LEADERBOARD_SCOPE.WEEKLY;
+    this.boardScope = defaultLeaderboardScope();
 
     if (this.platform !== null && hasCapability(this.platform, 'leaderboard')) {
       this.weeklyBoard = new WeeklyBoardController(this.platform, {

@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   board, and no board appears in PLAYING or Free Play game-over.
 - Share-line support on title and game-over: one key press (and one click on
   game-over) copies plain text with mode, week, score and display name only; if
-  clipboard write is unavailable, a manual copy prompt is shown instead.
+  clipboard write is unavailable, the same screen keeps a selectable manual-copy
+  line with no dialog.
 - Weekly-board controller tests covering hanging and rejecting leaderboard
   promises, plus cached-last-known behaviour and out-of-top own-rank display.
   

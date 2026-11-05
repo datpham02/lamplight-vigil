@@ -384,6 +384,6 @@ export const shareStatusLine = (status: ShareStatus): string => {
     case SHARE_STATUS.COPIED:
       return 'Copied.';
     case SHARE_STATUS.MANUAL:
-      return 'Clipboard unavailable. Copy from the prompt.';
+      return 'Clipboard unavailable. Copy the line above.';
   }
 };
