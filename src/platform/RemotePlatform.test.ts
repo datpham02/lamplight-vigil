@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { PLATFORM_SUBMIT_QUEUE_STORAGE_KEY } from '../config/index';
+import { PLATFORM_SUBMIT_QUEUE_STORAGE_KEY, SCORE_STORAGE_KEY } from '../config/index';
 import { SUBMISSION_STATE, type PlatformScoreEntry } from './Platform';
 import { PLATFORM_TRANSPORT_OPERATION, type PlatformTransport, type PlatformTransportRequest } from './PlatformTransport';
 import { RemotePlatform } from './RemotePlatform';
@@ -62,6 +62,16 @@ const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
+};
+
+const readQueuedScores = (storage: FakeStorage): number[] => {
+  const raw = storage.getItem(PLATFORM_SUBMIT_QUEUE_STORAGE_KEY);
+  if (raw === null) {
+    return [];
+  }
+
+  const parsed = JSON.parse(raw) as { submissions?: Array<{ entry?: { score?: number } }> };
+  return parsed.submissions?.map((submission) => submission.entry?.score ?? -1) ?? [];
 };
 
 const scoreEntry = (overrides: Partial<PlatformScoreEntry> = {}): PlatformScoreEntry => ({
@@ -186,6 +196,72 @@ describe('RemotePlatform', () => {
 
     assert.equal(before, 1);
     assert.equal(after, 1);
+  });
+
+  it('keeps a submission queued when it fails during an in-flight replay', async () => {
+    const storage = new FakeStorage();
+    storage.setItem(
+      PLATFORM_SUBMIT_QUEUE_STORAGE_KEY,
+      JSON.stringify({
+        submissions: [{ id: 'queued-a', entry: scoreEntry({ score: 111 }), queuedAtMs: 1 }],
+      }),
+    );
+
+    let releaseReplaySend: () => void = () => {
+      throw new Error('replay send release was not set');
+    };
+    let replaySendStarted: (() => void) | null = null;
+    const replaySendInFlight = new Promise<void>((resolve) => {
+      replaySendStarted = resolve;
+    });
+
+    const transport: PlatformTransport = {
+      send<TResponse>(request: PlatformTransportRequest): Promise<TResponse> {
+        if (request.operation !== PLATFORM_TRANSPORT_OPERATION.SUBMIT_SCORE) {
+          return Promise.resolve(undefined as TResponse);
+        }
+
+        const payload = request.payload as { entry: { score: number } };
+        if (payload.entry.score === 111) {
+          replaySendStarted?.();
+          return new Promise<TResponse>((resolve) => {
+            releaseReplaySend = () => resolve(undefined as TResponse);
+          });
+        }
+
+        return Promise.reject(new Error('offline'));
+      },
+    };
+
+    const platform = new RemotePlatform(transport, { storage, timeoutMs: 50 });
+    await replaySendInFlight;
+
+    await platform.submitScore(scoreEntry({ score: 222, submittedAtMs: 2 }));
+    assert.equal(platform.getSubmissionState(), SUBMISSION_STATE.QUEUED);
+    assert.deepEqual(readQueuedScores(storage), [111, 222]);
+
+    releaseReplaySend();
+    await flush();
+
+    assert.deepEqual(readQueuedScores(storage), [222]);
+    assert.equal(platform.getSubmissionState(), SUBMISSION_STATE.QUEUED);
+  });
+
+  it('does not touch local best score storage when transport rejects or hangs', async () => {
+    const storage = new FakeStorage();
+    storage.setItem(SCORE_STORAGE_KEY, '4321');
+
+    const rejectingTransport = new ScriptedTransport();
+    rejectingTransport.mode = 'reject';
+    const rejectPlatform = new RemotePlatform(rejectingTransport, { storage, timeoutMs: 15 });
+    await rejectPlatform.submitScore(scoreEntry({ submittedAtMs: 1 }));
+    assert.equal(storage.getItem(SCORE_STORAGE_KEY), '4321');
+
+    const hangingTransport = new ScriptedTransport();
+    hangingTransport.mode = 'hang';
+    const hangPlatform = new RemotePlatform(hangingTransport, { storage, timeoutMs: 5 });
+    await hangPlatform.submitScore(scoreEntry({ submittedAtMs: 2 }));
+    assert.equal(storage.getItem(SCORE_STORAGE_KEY), '4321');
   });
 
   it('caps queue length at configured maximum size', async () => {

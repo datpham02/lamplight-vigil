@@ -303,7 +303,7 @@ export class TitleOverlay {
     setTextIfChanged(this.boardRows, leaderboardReadout(payload));
     setTextIfChanged(
       this.boardState,
-      strings.leaderboardStateLine(payload.status, payload.scope, payload.submissionState),
+      strings.leaderboardStateLine(payload.status, payload.scope, payload.submissionState, false),
     );
   }
 

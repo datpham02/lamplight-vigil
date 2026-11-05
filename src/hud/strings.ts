@@ -364,15 +364,16 @@ export const leaderboardStateLine = (
   status: LeaderboardStatus,
   scope: LeaderboardScope,
   submissionState: SubmissionState,
+  showSubmissionState = true,
 ): string => {
   const board =
     scope === LEADERBOARD_SCOPE.DEVICE ? "this device's board" : 'the weekly board';
 
-  if (submissionState === SUBMISSION_STATE.QUEUED) {
+  if (showSubmissionState && submissionState === SUBMISSION_STATE.QUEUED) {
     return 'Score queued offline. It will submit when the game reconnects.';
   }
 
-  if (submissionState === SUBMISSION_STATE.FAILED) {
+  if (showSubmissionState && submissionState === SUBMISSION_STATE.FAILED) {
     return 'Score submit failed.';
   }
 

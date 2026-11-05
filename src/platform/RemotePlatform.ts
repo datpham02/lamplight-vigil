@@ -280,8 +280,16 @@ export class RemotePlatform implements Platform {
   }
 
   private removeQueuedById(id: string): void {
+    this.removeQueuedByIds(new Set([id]));
+  }
+
+  private removeQueuedByIds(ids: ReadonlySet<string>): void {
+    if (ids.size === 0) {
+      return;
+    }
+
     const current = this.queueSnapshot();
-    const next = current.filter((queued) => queued.id !== id);
+    const next = current.filter((queued) => !ids.has(queued.id));
     if (next.length !== current.length) {
       this.writeQueue(next);
     }
@@ -298,19 +306,19 @@ export class RemotePlatform implements Platform {
         return;
       }
 
-      const remaining: QueuedSubmission[] = [];
+      const sentIds = new Set<string>();
       for (const queued of pending) {
         try {
           await this.sendScore(queued.entry);
+          sentIds.add(queued.id);
           this.submissionState = SUBMISSION_STATE.SENT;
         } catch {
-          remaining.push(queued);
           this.submissionState = SUBMISSION_STATE.QUEUED;
         }
       }
 
-      this.writeQueue(remaining);
-      if (remaining.length > 0) {
+      this.removeQueuedByIds(sentIds);
+      if (this.queueSnapshot().length > 0) {
         this.submissionState = SUBMISSION_STATE.QUEUED;
       }
     } finally {

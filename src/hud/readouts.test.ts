@@ -387,6 +387,18 @@ describe('weekly board readout', () => {
       'Score queued offline. It will submit when the game reconnects.',
     );
   });
+
+  it('keeps title-screen board status wording reachable while queued', () => {
+    assert.equal(
+      strings.leaderboardStateLine(
+        LEADERBOARD_STATUS.LOADING,
+        LEADERBOARD_SCOPE.WEEKLY,
+        SUBMISSION_STATE.QUEUED,
+        false,
+      ),
+      'Loading the weekly board.',
+    );
+  });
 });
 
 describe('share line readout', () => {
