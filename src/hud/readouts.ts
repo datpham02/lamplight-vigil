@@ -16,7 +16,7 @@ import { HUD_NEXT_SPAWN_DECIMALS, HUD_SURGE_DECIMALS } from '../config/index';
 // it. `spawnInterval` is that module's own pure export and is the only thing
 // taken; `src/enemies/CrawlerField.test.ts` reaches for it the same way.
 import { spawnInterval } from '../enemies/CrawlerField';
-import type { ScorePayload, WeekPayload } from '../scenes/events';
+import { RUN_MODE, type LeaderboardPayload, type RunMode, type ScorePayload, type WeekPayload } from '../scenes/events';
 import { formatCount, formatRunTime, formatSeconds, resetCountdownParts } from './layout';
 import * as strings from './strings';
 
@@ -80,4 +80,37 @@ export function weekReadout(week: WeekPayload | null): string {
     strings.weeklyCellLine(week.entryId, week.valueIndex),
     strings.weekResetLine(resetCountdownParts(week.msRemaining)),
   );
+}
+
+const rankLabel = (rank: number): string => `#${String(rank).padStart(2, '0')}`;
+
+function boardRow(rank: number, name: string, score: number, own = false): string {
+  return `${own ? 'YOU ' : ''}${rankLabel(rank)} ${name} ${formatCount(score)}`;
+}
+
+/** Lines shown in the weekly board block on title and game over. */
+export function leaderboardReadout(board: LeaderboardPayload): string {
+  if (board.rows.length === 0) {
+    return '';
+  }
+
+  const lines = board.rows.map((row) => boardRow(row.rank, row.displayName, row.score, row.isPlayer));
+  if (board.playerRow !== null && board.playerRow.rank > board.rows.length) {
+    lines.push('...');
+    lines.push(boardRow(board.playerRow.rank, board.playerRow.displayName, board.playerRow.score, true));
+  }
+
+  return lines.join('\n');
+}
+
+/** OV-7a share text: mode, week, score and display name only. */
+export function shareLineReadout(
+  mode: RunMode,
+  weekKey: string | null,
+  score: number,
+  displayName: string,
+): string {
+  const modeLabel = mode === RUN_MODE.FREE_PLAY ? 'FREE PLAY' : 'WEEKLY';
+  const week = weekKey ?? 'NO WEEK';
+  return `${modeLabel} · ${week} · SCORE ${formatCount(score)} · ${displayName}`;
 }

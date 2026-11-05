@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Weekly board panels on title and game-over screens, sourced through the
+  platform adapter and labelled with explicit board state (`loading`, `shown`,
+  `unavailable`, `last known`). The local fallback is labelled as this device's
+  board, and no board appears in PLAYING or Free Play game-over.
+- Share-line support on title and game-over: one key press (and one click on
+  game-over) copies plain text with mode, week, score and display name only; if
+  clipboard write is unavailable, the same screen keeps a selectable manual-copy
+  line with no dialog.
+- Weekly-board controller tests covering hanging and rejecting leaderboard
+  promises, plus cached-last-known behaviour and out-of-top own-rank display.
+
 ### Changed
 
 - Recorded the Board's D4 decision of 2026-11-05 — the backend is the website's
@@ -111,4 +124,5 @@ play, lose and restart.
 [#8]: https://github.com/datpham02/lamplight-vigil/pull/8
 [#9]: https://github.com/datpham02/lamplight-vigil/pull/9
 [#10]: https://github.com/datpham02/lamplight-vigil/pull/10
+[unreleased]: https://github.com/datpham02/lamplight-vigil/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/datpham02/lamplight-vigil/releases/tag/v0.1.0

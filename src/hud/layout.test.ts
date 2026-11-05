@@ -49,7 +49,9 @@ import { weekReadout } from './readouts';
 import * as strings from './strings';
 import {
   GAME_OVER_BOXES,
+  GAME_OVER_CLEAR_BOX,
   GAME_OVER_CLEAR_BAND,
+  GAME_OVER_SIDE_BOXES,
   NAME_EDITOR_BOXES,
   NAME_FIELD_BOX,
   NAME_FIELD_LONGEST_DRAFT,
@@ -57,6 +59,7 @@ import {
   NAME_FIELD_TEXT_BUDGET,
   PLAY_HUD_BOXES,
   TITLE_BOXES,
+  TITLE_SIDE_BOXES,
   fitBox,
   fitScale,
   OVERLAY_ROW_BUDGET,
@@ -76,7 +79,9 @@ import {
 const ALL_BOXES: readonly HudBox[] = [
   ...PLAY_HUD_BOXES.map((entry) => entry.box),
   ...TITLE_BOXES,
+  ...TITLE_SIDE_BOXES,
   ...GAME_OVER_BOXES,
+  ...GAME_OVER_SIDE_BOXES,
   ...NAME_EDITOR_BOXES,
 ];
 
@@ -135,17 +140,16 @@ describe('HUD placement (vision.md §6 criterion 7)', () => {
 
   it('never writes one overlay row over another', () => {
     for (const rows of [TITLE_BOXES, GAME_OVER_BOXES, NAME_EDITOR_BOXES]) {
-      for (let i = 0; i < rows.length - 1; i += 1) {
-        const above = rows[i];
-        const below = rows[i + 1];
-        if (above === undefined || below === undefined) {
-          continue;
-        }
+      for (let i = 0; i < rows.length; i += 1) {
+        for (let j = i + 1; j < rows.length; j += 1) {
+          const a = rows[i];
+          const b = rows[j];
+          if (a === undefined || b === undefined) {
+            continue;
+          }
 
-        assert.ok(
-          above.bottom <= below.top,
-          `${above.name} runs into ${below.name}`,
-        );
+          assert.equal(overlaps(a, b), false, `${a.name} runs into ${b.name}`);
+        }
       }
     }
   });
@@ -322,14 +326,16 @@ describe('the layout at every window size (vision.md §6 criterion 7)', () => {
       for (const rows of [TITLE_BOXES, GAME_OVER_BOXES, NAME_EDITOR_BOXES]) {
         const scaled = rows.map((box) => fitBox(box, viewport));
 
-        for (let i = 0; i < scaled.length - 1; i += 1) {
-          const above = scaled[i];
-          const below = scaled[i + 1];
-          if (above === undefined || below === undefined) {
-            continue;
-          }
+        for (let i = 0; i < scaled.length; i += 1) {
+          for (let j = i + 1; j < scaled.length; j += 1) {
+            const a = scaled[i];
+            const b = scaled[j];
+            if (a === undefined || b === undefined) {
+              continue;
+            }
 
-          assert.ok(above.bottom <= below.top + 0.000001, `${above.name} runs into ${below.name}`);
+            assert.equal(overlaps(a, b), false, `${a.name} runs into ${b.name}`);
+          }
         }
       }
     });
@@ -377,11 +383,13 @@ describe('the countdown to the weekly reset (design.md §14.2)', () => {
 describe('game-over overlay (vision.md §6 criterion 6)', () => {
   it('leaves the lamp and the crawler touching it uncovered', () => {
     for (const box of GAME_OVER_BOXES) {
-      const clearsAbove = box.bottom <= GAME_OVER_CLEAR_BAND.top;
-      const clearsBelow = box.top >= GAME_OVER_CLEAR_BAND.bottom;
+      const clearsAbove = box.bottom <= GAME_OVER_CLEAR_BOX.top;
+      const clearsBelow = box.top >= GAME_OVER_CLEAR_BOX.bottom;
+      const clearsLeft = box.right <= GAME_OVER_CLEAR_BOX.left;
+      const clearsRight = box.left >= GAME_OVER_CLEAR_BOX.right;
 
       assert.ok(
-        clearsAbove || clearsBelow,
+        clearsAbove || clearsBelow || clearsLeft || clearsRight,
         `${box.name} covers the lamp, where the crawler that killed the player is frozen`,
       );
     }

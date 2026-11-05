@@ -14,9 +14,20 @@ import {
   INPUT_FREE_PLAY_KEY,
   INPUT_RENAME_KEY,
   INPUT_RESTART_KEY,
+  INPUT_SHARE_KEY,
   POWER_FOCUS_REARM,
 } from '../config/index';
-import { RUN_MODE, type NameNotice, type RunMode } from '../scenes/events';
+import {
+  LEADERBOARD_SCOPE,
+  LEADERBOARD_STATUS,
+  RUN_MODE,
+  SHARE_STATUS,
+  type LeaderboardScope,
+  type LeaderboardStatus,
+  type NameNotice,
+  type RunMode,
+  type ShareStatus,
+} from '../scenes/events';
 import type { ResetCountdown } from './layout';
 
 /** One row of the title screen's control table: the key, and what it does. */
@@ -122,6 +133,7 @@ export const TITLE_PROMPT = `PRESS ANY OTHER KEY OR CLICK TO BEGIN ${MODE_WEEKLY
  * reads once.
  */
 export const TITLE_FREE_PLAY = `PRESS ${INPUT_FREE_PLAY_KEY} FOR ${MODE_FREE_PLAY} · NO WEEK, NO TWIST, THE HOLLOW AS IT SHIPS`;
+export const TITLE_SHARE = `PRESS ${INPUT_SHARE_KEY} TO COPY A SHARE LINE`;
 
 export const TITLE_FOOTNOTE = 'Running out of power never ends the run. It only stops the burning.';
 
@@ -323,6 +335,7 @@ export const PAUSE_PROMPT = 'PRESS ANY KEY OR CLICK TO RESUME';
 export const GAME_OVER_HEADING = 'A CRAWLER REACHED THE LAMP';
 export const GAME_OVER_SCORE_LABEL = 'SCORE';
 export const GAME_OVER_PROMPT = `PRESS ${INPUT_RESTART_KEY} TO LIGHT IT AGAIN`;
+export const GAME_OVER_SHARE = `PRESS ${INPUT_SHARE_KEY} TO COPY THIS RUN`;
 
 /**
  * The mode, the time survived and the crawlers banished, on one line under the
@@ -338,3 +351,39 @@ export const gameOverStatsLine = (mode: RunMode, time: string, banished: string)
 
 /** Said only when this run actually beat the stored best, never on equalling it. */
 export const newBestLine = (best: string): string => `NEW BEST ${best}`;
+
+// ---------------------------------------------------------------------------
+// Weekly board + share line
+// ---------------------------------------------------------------------------
+
+export const leaderboardHeading = (scope: LeaderboardScope): string =>
+  scope === LEADERBOARD_SCOPE.DEVICE ? "THIS DEVICE'S WEEKLY BOARD" : 'WEEKLY BOARD';
+
+export const leaderboardStateLine = (status: LeaderboardStatus, scope: LeaderboardScope): string => {
+  const board =
+    scope === LEADERBOARD_SCOPE.DEVICE ? "this device's board" : 'the weekly board';
+
+  switch (status) {
+    case LEADERBOARD_STATUS.LOADING:
+      return `Loading ${board}.`;
+    case LEADERBOARD_STATUS.SHOWN:
+      return `Showing ${board}.`;
+    case LEADERBOARD_STATUS.UNAVAILABLE:
+      return `The board is unavailable right now.`;
+    case LEADERBOARD_STATUS.LAST_KNOWN:
+      return `Showing the last known ${board}.`;
+  }
+};
+
+export const shareReadyLine = (line: string): string => line;
+
+export const shareStatusLine = (status: ShareStatus): string => {
+  switch (status) {
+    case SHARE_STATUS.READY:
+      return `Press ${INPUT_SHARE_KEY} to copy.`;
+    case SHARE_STATUS.COPIED:
+      return 'Copied.';
+    case SHARE_STATUS.MANUAL:
+      return 'Clipboard unavailable. Copy the line above.';
+  }
+};

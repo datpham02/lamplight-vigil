@@ -526,6 +526,24 @@ export const INPUT_RENAME_KEY = 'N';
  */
 export const INPUT_FREE_PLAY_KEY = 'F';
 
+/**
+ * OV-7a — copies the share line from TITLE or GAME_OVER.
+ *
+ * Title input stays one keypress to begin a run: this key is named on screen
+ * beside `INPUT_RENAME_KEY` and `INPUT_FREE_PLAY_KEY`, and the prompt below
+ * those rows still says "any other key".
+ */
+export const INPUT_SHARE_KEY = 'C';
+
+/**
+ * OV-7a — rows shown on the weekly board on TITLE and GAME_OVER.
+ *
+ * The query asks for a wider slice than this so a player outside the top rows
+ * can still be shown with their own rank.
+ */
+export const LEADERBOARD_TOP_ROWS = 5;
+export const LEADERBOARD_QUERY_LIMIT = 64;
+
 // ---------------------------------------------------------------------------
 // HUD — palette, typography and layout (`ui-designer`)
 // ---------------------------------------------------------------------------
@@ -768,6 +786,19 @@ export const TITLE_PROMPT_SIZE = 24;
 export const TITLE_FOOTNOTE_Y = 494;
 export const TITLE_FOOTNOTE_SIZE = 14;
 
+// OV-7a — weekly board and share affordance on the title screen.
+export const TITLE_BOARD_HEADING_X = 728;
+export const TITLE_BOARD_HEADING_Y = 174;
+export const TITLE_BOARD_HEADING_SIZE = 14;
+export const TITLE_BOARD_ROWS_X = 728;
+export const TITLE_BOARD_ROWS_Y = 198;
+export const TITLE_BOARD_ROWS_SIZE = 14;
+export const TITLE_BOARD_STATE_X = 728;
+export const TITLE_BOARD_STATE_Y = 316;
+export const TITLE_BOARD_STATE_SIZE = 13;
+export const TITLE_SHARE_Y = 338;
+export const TITLE_SHARE_SIZE = 13;
+
 // --- Name editor ------------------------------------------------------------
 //
 // `docs/design.md` §15.3. A modal over the title screen, and the only screen in
@@ -906,6 +937,19 @@ export const GAME_OVER_BEST_Y = 454;
 export const GAME_OVER_BEST_SIZE = 20;
 export const GAME_OVER_PROMPT_Y = 486;
 export const GAME_OVER_PROMPT_SIZE = 20;
+
+// OV-7a — weekly board and share affordance on the game-over screen.
+export const GAME_OVER_BOARD_HEADING_X = 728;
+export const GAME_OVER_BOARD_HEADING_Y = 164;
+export const GAME_OVER_BOARD_HEADING_SIZE = 14;
+export const GAME_OVER_BOARD_ROWS_X = 728;
+export const GAME_OVER_BOARD_ROWS_Y = 188;
+export const GAME_OVER_BOARD_ROWS_SIZE = 14;
+export const GAME_OVER_BOARD_STATE_X = 728;
+export const GAME_OVER_BOARD_STATE_Y = 306;
+export const GAME_OVER_BOARD_STATE_SIZE = 13;
+export const GAME_OVER_SHARE_Y = 330;
+export const GAME_OVER_SHARE_SIZE = 13;
 
 /**
  * A thin ring left where the crawler reached the lamp. It is drawn on the frame

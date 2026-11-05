@@ -131,6 +131,12 @@ export const VIGIL_EVENTS = {
    * rides on RunStatePayload, resolved once at the run's start and held.
    */
   WEEK_CHANGED: 'week:changed',
+  /** Weekly board and its state line for title/game-over. Payload: LeaderboardPayload. */
+  LEADERBOARD_CHANGED: 'leaderboard:changed',
+  /** Share line text and copy state for title/game-over. Payload: SharePayload. */
+  SHARE_CHANGED: 'share:changed',
+  /** HUD asks the scene to copy the share line (one click path). Payload: none. */
+  SHARE_REQUESTED: 'share:requested',
 } as const;
 
 /** Payload for VIGIL_EVENTS.BEAM_AIMED. */
@@ -183,6 +189,50 @@ export interface WeekPayload {
    * screen, and a qualified one would put a time zone on a title screen.
    */
   readonly msRemaining: number;
+}
+
+export const LEADERBOARD_SCOPE = {
+  DEVICE: 'device',
+  WEEKLY: 'weekly',
+} as const;
+export type LeaderboardScope = (typeof LEADERBOARD_SCOPE)[keyof typeof LEADERBOARD_SCOPE];
+
+export const LEADERBOARD_STATUS = {
+  LOADING: 'loading',
+  SHOWN: 'shown',
+  UNAVAILABLE: 'unavailable',
+  LAST_KNOWN: 'last-known',
+} as const;
+export type LeaderboardStatus = (typeof LEADERBOARD_STATUS)[keyof typeof LEADERBOARD_STATUS];
+
+export interface LeaderboardRowPayload {
+  readonly rank: number;
+  readonly displayName: string;
+  readonly score: number;
+  readonly isPlayer: boolean;
+}
+
+/** Payload for VIGIL_EVENTS.LEADERBOARD_CHANGED. */
+export interface LeaderboardPayload {
+  readonly visible: boolean;
+  readonly weekKey: string | null;
+  readonly scope: LeaderboardScope;
+  readonly status: LeaderboardStatus;
+  readonly rows: readonly LeaderboardRowPayload[];
+  readonly playerRow: LeaderboardRowPayload | null;
+}
+
+export const SHARE_STATUS = {
+  READY: 'ready',
+  COPIED: 'copied',
+  MANUAL: 'manual',
+} as const;
+export type ShareStatus = (typeof SHARE_STATUS)[keyof typeof SHARE_STATUS];
+
+/** Payload for VIGIL_EVENTS.SHARE_CHANGED. */
+export interface SharePayload {
+  readonly line: string;
+  readonly status: ShareStatus;
 }
 
 /** Payload for VIGIL_EVENTS.RUN_STATE_CHANGED. */

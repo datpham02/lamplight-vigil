@@ -16,6 +16,15 @@ import {
   DISPLAY_NAME_MAX_LENGTH,
   GAME_OVER_BEST_SIZE,
   GAME_OVER_BEST_Y,
+  GAME_OVER_BOARD_HEADING_SIZE,
+  GAME_OVER_BOARD_HEADING_X,
+  GAME_OVER_BOARD_HEADING_Y,
+  GAME_OVER_BOARD_ROWS_SIZE,
+  GAME_OVER_BOARD_ROWS_X,
+  GAME_OVER_BOARD_ROWS_Y,
+  GAME_OVER_BOARD_STATE_SIZE,
+  GAME_OVER_BOARD_STATE_X,
+  GAME_OVER_BOARD_STATE_Y,
   GAME_OVER_CLEAR_RADIUS,
   GAME_OVER_HEADING_SIZE,
   GAME_OVER_HEADING_Y,
@@ -24,6 +33,8 @@ import {
   GAME_OVER_SCORE_LABEL_Y,
   GAME_OVER_SCORE_SIZE,
   GAME_OVER_SCORE_VALUE_Y,
+  GAME_OVER_SHARE_SIZE,
+  GAME_OVER_SHARE_Y,
   GAME_OVER_STATS_SIZE,
   GAME_OVER_STATS_Y,
   GAME_OVER_WEEK_SIZE,
@@ -55,6 +66,7 @@ import {
   HUD_TIME_LABEL_Y,
   HUD_TIME_VALUE_Y,
   HUD_VALUE_SIZE,
+  LAMP_X,
   LAMP_Y,
   MS_PER_SECOND,
   NAME_EDITOR_CARET_GAP,
@@ -77,6 +89,15 @@ import {
   RENDER_WIDTH,
   TITLE_BEST_SIZE,
   TITLE_BEST_Y,
+  TITLE_BOARD_HEADING_SIZE,
+  TITLE_BOARD_HEADING_X,
+  TITLE_BOARD_HEADING_Y,
+  TITLE_BOARD_ROWS_SIZE,
+  TITLE_BOARD_ROWS_X,
+  TITLE_BOARD_ROWS_Y,
+  TITLE_BOARD_STATE_SIZE,
+  TITLE_BOARD_STATE_X,
+  TITLE_BOARD_STATE_Y,
   TITLE_CONTROLS_ROW_GAP,
   TITLE_CONTROLS_SIZE,
   TITLE_CONTROLS_TOP_Y,
@@ -90,6 +111,8 @@ import {
   TITLE_NAME_Y,
   TITLE_PROMPT_SIZE,
   TITLE_PROMPT_Y,
+  TITLE_SHARE_SIZE,
+  TITLE_SHARE_Y,
   TITLE_TAGLINE_SIZE,
   TITLE_TAGLINE_Y,
   TITLE_WEEK_SIZE,
@@ -265,6 +288,11 @@ function overlayRow(name: string, top: number, fontSize: number): HudBox {
   return { name, left: HUD_LEFT_X, top, right: HUD_RIGHT_X, bottom: top + lineHeight(fontSize) };
 }
 
+/** A row anchored to one x-position, used by side board blocks. */
+function sideRow(name: string, left: number, top: number, fontSize: number, width = HUD_CLUSTER_MAX_WIDTH): HudBox {
+  return { name, left, top, right: left + width, bottom: top + lineHeight(fontSize) };
+}
+
 /** Which corner each play-HUD box belongs to, for the non-overlap proof. */
 export interface CornerBox {
   readonly corner: HudCorner;
@@ -327,6 +355,14 @@ export const TITLE_BOXES: readonly HudBox[] = [
   overlayRow('title footnote', TITLE_FOOTNOTE_Y, TITLE_FOOTNOTE_SIZE),
 ];
 
+/** Side panel rows on the title screen (OV-7a board/share). */
+export const TITLE_SIDE_BOXES: readonly HudBox[] = [
+  sideRow('title board heading', TITLE_BOARD_HEADING_X, TITLE_BOARD_HEADING_Y, TITLE_BOARD_HEADING_SIZE, 220),
+  sideRow('title board rows', TITLE_BOARD_ROWS_X, TITLE_BOARD_ROWS_Y, TITLE_BOARD_ROWS_SIZE, 220),
+  sideRow('title board state', TITLE_BOARD_STATE_X, TITLE_BOARD_STATE_Y, TITLE_BOARD_STATE_SIZE, 220),
+  sideRow('title share', TITLE_BOARD_STATE_X, TITLE_SHARE_Y, TITLE_SHARE_SIZE, 220),
+];
+
 /** Every row of the game-over overlay, top to bottom. */
 export const GAME_OVER_BOXES: readonly HudBox[] = [
   overlayRow('game-over heading', GAME_OVER_HEADING_Y, GAME_OVER_HEADING_SIZE),
@@ -336,6 +372,26 @@ export const GAME_OVER_BOXES: readonly HudBox[] = [
   overlayRow('game-over week', GAME_OVER_WEEK_Y, GAME_OVER_WEEK_SIZE),
   overlayRow('game-over best', GAME_OVER_BEST_Y, GAME_OVER_BEST_SIZE),
   overlayRow('game-over prompt', GAME_OVER_PROMPT_Y, GAME_OVER_PROMPT_SIZE),
+];
+
+/** Side panel rows on the game-over screen (OV-7a board/share). */
+export const GAME_OVER_SIDE_BOXES: readonly HudBox[] = [
+  sideRow(
+    'game-over board heading',
+    GAME_OVER_BOARD_HEADING_X,
+    GAME_OVER_BOARD_HEADING_Y,
+    GAME_OVER_BOARD_HEADING_SIZE,
+    220,
+  ),
+  sideRow('game-over board rows', GAME_OVER_BOARD_ROWS_X, GAME_OVER_BOARD_ROWS_Y, GAME_OVER_BOARD_ROWS_SIZE, 220),
+  sideRow(
+    'game-over board state',
+    GAME_OVER_BOARD_STATE_X,
+    GAME_OVER_BOARD_STATE_Y,
+    GAME_OVER_BOARD_STATE_SIZE,
+    220,
+  ),
+  sideRow('game-over share', GAME_OVER_BOARD_STATE_X, GAME_OVER_SHARE_Y, GAME_OVER_SHARE_SIZE, 220),
 ];
 
 // ---------------------------------------------------------------------------
@@ -417,6 +473,14 @@ export const NAME_FIELD_TEXT_BOX: HudBox = {
 export const GAME_OVER_CLEAR_BAND = {
   top: LAMP_Y - GAME_OVER_CLEAR_RADIUS,
   bottom: LAMP_Y + GAME_OVER_CLEAR_RADIUS,
+} as const;
+
+/** The full clear box around the lamp's evidence zone. */
+export const GAME_OVER_CLEAR_BOX = {
+  left: LAMP_X - GAME_OVER_CLEAR_RADIUS,
+  right: LAMP_X + GAME_OVER_CLEAR_RADIUS,
+  top: GAME_OVER_CLEAR_BAND.top,
+  bottom: GAME_OVER_CLEAR_BAND.bottom,
 } as const;
 
 /** Whether two boxes share any area. Touching edges do not count as overlap. */

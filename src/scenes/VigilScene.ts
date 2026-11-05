@@ -11,6 +11,9 @@ import {
   INPUT_FOCUS_KEY,
   INPUT_FOCUS_POINTER,
   INPUT_RESTART_KEY,
+  INPUT_SHARE_KEY,
+  LEADERBOARD_QUERY_LIMIT,
+  LEADERBOARD_TOP_ROWS,
   LAMP_X,
   LAMP_Y,
   MS_PER_SECOND,
@@ -23,6 +26,7 @@ import {
 import { CrawlerField, CrawlerRenderer } from '../enemies/index';
 import { readHostContext, type HostContext } from '../host/hostContext';
 import { Hud } from '../hud/index';
+import { shareLineReadout } from '../hud/readouts';
 import { hasCapability, resolvePlatform, type Platform } from '../platform/index';
 import { freePlayRun, msRemainingInWeek, weeklyRunAt, type RunSetup } from '../weekly/index';
 import { readBestScore, writeBestScore } from './bestScore';
@@ -42,23 +46,31 @@ import {
   typeIntoName,
   type NameEditState,
 } from './nameEdit';
+import { defaultLeaderboardScope } from './leaderboardScope';
 import { RestartClock } from './restartClock';
 import { runScore } from './score';
 import { VigilFeedback } from './VigilFeedback';
 import {
+  LEADERBOARD_STATUS,
   RUN_MODE,
   RUN_STATE,
+  SHARE_STATUS,
   VIGIL_EVENTS,
   type DisplayNamePayload,
+  type LeaderboardScope,
+  type LeaderboardPayload,
   type PausePayload,
   type PointPayload,
   type PowerPayload,
   type RunMode,
   type RunState,
   type RunStatePayload,
+  type SharePayload,
   type ScorePayload,
+  type ShareStatus,
   type WeekPayload,
 } from './events';
+import { WEEKLY_BOARD_STATUS, WeeklyBoardController } from './weeklyBoard';
 
 /**
  * The single play scene: the lamp in the centre of the dark hollow, the beam it
@@ -124,6 +136,11 @@ export class VigilScene extends Phaser.Scene {
    */
   private host: HostContext | null = null;
   private platform: Platform | null = null;
+  private weeklyBoard: WeeklyBoardController | null = null;
+  private boardScope: LeaderboardScope = defaultLeaderboardScope();
+  private currentBoardWeekKey: string | null = null;
+
+  private shareStatus: ShareStatus = SHARE_STATUS.READY;
 
   /**
    * §14.8 — which mode the current run is being played in.
@@ -240,6 +257,8 @@ export class VigilScene extends Phaser.Scene {
     this.runWeek = null;
     this.weekEndsAtMs = 0;
     this.weekTickShown = -1;
+    this.currentBoardWeekKey = null;
+    this.shareStatus = SHARE_STATUS.READY;
 
     // §15 — read here, with the best score, and never again: both are storage
     // reads, and the restart path is not allowed either of them.
@@ -251,6 +270,17 @@ export class VigilScene extends Phaser.Scene {
   create(): void {
     this.host = readHostContext(this);
     this.platform = this.host?.platform ?? resolvePlatform(undefined);
+    this.boardScope = defaultLeaderboardScope();
+
+    if (this.platform !== null && hasCapability(this.platform, 'leaderboard')) {
+      this.weeklyBoard = new WeeklyBoardController(this.platform, {
+        topRows: LEADERBOARD_TOP_ROWS,
+        queryLimit: LEADERBOARD_QUERY_LIMIT,
+      });
+      this.weeklyBoard.primePlayer();
+    } else {
+      this.weeklyBoard = null;
+    }
 
     // The minimum ambient floor from docs/design.md §10.2: a hollow that is
     // literally black hides crawlers the player is entitled to see.
@@ -284,10 +314,17 @@ export class VigilScene extends Phaser.Scene {
       keyboard.on(Phaser.Input.Keyboard.Events.ANY_KEY_DOWN, this.onKeyDown, this);
     }
     this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);
+    this.events.on(VIGIL_EVENTS.SHARE_REQUESTED, this.onShareRequested, this);
 
     this.emitDisplayName();
     this.emitWeek();
+    this.emitLeaderboard();
+    this.emitShare();
     this.emitRunState();
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(VIGIL_EVENTS.SHARE_REQUESTED, this.onShareRequested, this);
+    });
   }
 
   override update(time: number, delta: number): void {
@@ -411,6 +448,16 @@ export class VigilScene extends Phaser.Scene {
    * before §15 (`docs/vision.md` §3, condition C3.2).
    */
   private onKeyDown(event: KeyboardEvent): void {
+    if (
+      this.nameEdit === null &&
+      (this.runState === RUN_STATE.TITLE || this.runState === RUN_STATE.GAME_OVER) &&
+      event.key.toUpperCase() === INPUT_SHARE_KEY
+    ) {
+      event.preventDefault();
+      this.copyShareLine();
+      return;
+    }
+
     const action = keyAction(
       {
         onTitle: this.runState === RUN_STATE.TITLE,
@@ -508,6 +555,11 @@ export class VigilScene extends Phaser.Scene {
       msRemaining,
     };
     this.events.emit(VIGIL_EVENTS.WEEK_CHANGED, payload);
+    this.emitShare();
+
+    if (this.runState === RUN_STATE.TITLE) {
+      this.refreshWeeklyBoard(payload.key);
+    }
   }
 
   /**
@@ -701,6 +753,7 @@ export class VigilScene extends Phaser.Scene {
    */
   private startRun(mode: RunMode): void {
     this.mode = mode;
+    this.shareStatus = SHARE_STATUS.READY;
 
     // Resolved once, here, from one clock reading, and then held for the whole
     // run: by the field and the beam as tuning and dice, and by the scene as
@@ -745,9 +798,11 @@ export class VigilScene extends Phaser.Scene {
 
     this.crawlerRenderer.draw(this.field.all);
     this.emitRunState();
+    this.emitLeaderboard();
     this.emitPause();
     this.emitPower();
     this.emitScore();
+    this.emitShare();
 
     this.restartClock.markRunStarted();
   }
@@ -779,6 +834,7 @@ export class VigilScene extends Phaser.Scene {
   /** §2.3 — a crawler touched the lamp. That, and only that, ends a run. */
   private endRun(at: { readonly x: number; readonly y: number }): void {
     this.runState = RUN_STATE.GAME_OVER;
+    this.shareStatus = SHARE_STATUS.READY;
     this.restartLockoutLeft = GAME_OVER_INPUT_LOCKOUT;
     this.restartBuffered = false;
     this.restartClock.markDeath(this.frameTimeMs);
@@ -796,12 +852,18 @@ export class VigilScene extends Phaser.Scene {
     const hit: PointPayload = { x: at.x, y: at.y };
     this.events.emit(VIGIL_EVENTS.LAMP_HIT, hit);
     this.emitRunState();
+    this.emitShare();
+    this.emitLeaderboard();
 
     // Fire-and-forget: restart timing never waits for score submission.
     this.submitScore();
   }
 
   private submitScore(): void {
+    if (this.mode === RUN_MODE.FREE_PLAY) {
+      return;
+    }
+
     const platform = this.platform;
     if (platform === null || !hasCapability(platform, 'leaderboard')) {
       return;
@@ -817,6 +879,99 @@ export class VigilScene extends Phaser.Scene {
     void platform.submitScore(entry).catch(() => {
       // Local fallback and offline paths are non-fatal by design.
     });
+
+    if (this.runWeek !== null) {
+      this.refreshWeeklyBoard(this.runWeek.key, true);
+    }
+  }
+
+  private onShareRequested(): void {
+    if (this.runState === RUN_STATE.TITLE || this.runState === RUN_STATE.GAME_OVER) {
+      this.copyShareLine();
+    }
+  }
+
+  private copyShareLine(): void {
+    const line = this.shareLine();
+    const clipboard = globalThis.navigator?.clipboard;
+
+    if (clipboard === undefined || typeof clipboard.writeText !== 'function') {
+      this.shareStatus = SHARE_STATUS.MANUAL;
+      this.emitShare();
+      return;
+    }
+
+    void clipboard
+      .writeText(line)
+      .then(() => {
+        this.shareStatus = SHARE_STATUS.COPIED;
+        this.emitShare();
+      })
+      .catch(() => {
+        this.shareStatus = SHARE_STATUS.MANUAL;
+        this.emitShare();
+      });
+  }
+
+  private shareLine(): string {
+    const week =
+      this.runState === RUN_STATE.GAME_OVER
+        ? this.runWeek?.key ?? 'NO WEEK'
+        : this.currentBoardWeekKey ?? weeklyRunAt(Date.now()).week?.key ?? 'NO WEEK';
+    return shareLineReadout(this.mode, week, this.score, this.displayName.name);
+  }
+
+  private refreshWeeklyBoard(weekKey: string, force = false): void {
+    const board = this.weeklyBoard;
+    if (board === null) {
+      this.emitLeaderboard();
+      return;
+    }
+
+    if (!force && this.currentBoardWeekKey === weekKey) {
+      return;
+    }
+
+    this.currentBoardWeekKey = weekKey;
+    void board.refresh(weekKey).finally(() => {
+      this.emitLeaderboard();
+    });
+    this.emitLeaderboard();
+  }
+
+  private emitLeaderboard(): void {
+    const board = this.weeklyBoard?.snapshot() ?? null;
+    const status =
+      board === null
+        ? LEADERBOARD_STATUS.UNAVAILABLE
+        : board.status === WEEKLY_BOARD_STATUS.LOADING
+          ? LEADERBOARD_STATUS.LOADING
+          : board.status === WEEKLY_BOARD_STATUS.SHOWN
+            ? LEADERBOARD_STATUS.SHOWN
+            : board.status === WEEKLY_BOARD_STATUS.LAST_KNOWN
+              ? LEADERBOARD_STATUS.LAST_KNOWN
+              : LEADERBOARD_STATUS.UNAVAILABLE;
+
+    const visible =
+      this.runState === RUN_STATE.TITLE ||
+      (this.runState === RUN_STATE.GAME_OVER && this.mode === RUN_MODE.WEEKLY);
+    const payload: LeaderboardPayload = {
+      visible,
+      weekKey: board?.weekKey ?? null,
+      scope: this.boardScope,
+      status,
+      rows: board?.rows ?? [],
+      playerRow: board?.playerRow ?? null,
+    };
+    this.events.emit(VIGIL_EVENTS.LEADERBOARD_CHANGED, payload);
+  }
+
+  private emitShare(): void {
+    const payload: SharePayload = {
+      line: this.shareLine(),
+      status: this.shareStatus,
+    };
+    this.events.emit(VIGIL_EVENTS.SHARE_CHANGED, payload);
   }
 
   private emitRunState(): void {
@@ -849,6 +1004,7 @@ export class VigilScene extends Phaser.Scene {
 
     this.renameLockShown = payload.renameLockDays;
     this.events.emit(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, payload);
+    this.emitShare();
   }
 
   private emitPause(): void {

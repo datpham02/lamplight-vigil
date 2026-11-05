@@ -41,19 +41,30 @@ import {
   TITLE_HEADING_SIZE,
   TITLE_HEADING_TRACKING,
   TITLE_HEADING_Y,
+  TITLE_BOARD_HEADING_SIZE,
+  TITLE_BOARD_HEADING_X,
+  TITLE_BOARD_HEADING_Y,
+  TITLE_BOARD_ROWS_SIZE,
+  TITLE_BOARD_ROWS_X,
+  TITLE_BOARD_ROWS_Y,
+  TITLE_BOARD_STATE_SIZE,
+  TITLE_BOARD_STATE_X,
+  TITLE_BOARD_STATE_Y,
   TITLE_NAME_SIZE,
   TITLE_NAME_Y,
   TITLE_PROMPT_SIZE,
   TITLE_PROMPT_Y,
+  TITLE_SHARE_SIZE,
+  TITLE_SHARE_Y,
   TITLE_SCRIM_ALPHA,
   TITLE_TAGLINE_SIZE,
   TITLE_TAGLINE_Y,
   TITLE_WEEK_SIZE,
   TITLE_WEEK_Y,
 } from '../config/index';
-import type { DisplayNamePayload, WeekPayload } from '../scenes/events';
+import type { DisplayNamePayload, LeaderboardPayload, SharePayload, WeekPayload } from '../scenes/events';
 import { formatCount } from './layout';
-import { weekReadout } from './readouts';
+import { leaderboardReadout, weekReadout } from './readouts';
 import { scrim } from './scrim';
 import * as strings from './strings';
 import { hudText, setTextIfChanged } from './text';
@@ -82,6 +93,10 @@ export class TitleOverlay {
    * that has already ended (pillar 2, criterion 27).
    */
   private readonly week: Phaser.GameObjects.Text;
+  private readonly boardHeading: Phaser.GameObjects.Text;
+  private readonly boardRows: Phaser.GameObjects.Text;
+  private readonly boardState: Phaser.GameObjects.Text;
+  private readonly share: Phaser.GameObjects.Text;
 
   public constructor(scene: Phaser.Scene) {
     const children: Phaser.GameObjects.GameObject[] = [scrim(scene, TITLE_SCRIM_ALPHA)];
@@ -166,10 +181,48 @@ export class TitleOverlay {
       align: 'center',
     });
 
+    this.boardHeading = hudText(scene, {
+      x: TITLE_BOARD_HEADING_X,
+      y: TITLE_BOARD_HEADING_Y,
+      content: '',
+      size: TITLE_BOARD_HEADING_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+    this.boardRows = hudText(scene, {
+      x: TITLE_BOARD_ROWS_X,
+      y: TITLE_BOARD_ROWS_Y,
+      content: '',
+      size: TITLE_BOARD_ROWS_SIZE,
+      color: HUD_TEXT_PRIMARY,
+      align: 'left',
+      mono: true,
+    });
+    this.boardState = hudText(scene, {
+      x: TITLE_BOARD_STATE_X,
+      y: TITLE_BOARD_STATE_Y,
+      content: '',
+      size: TITLE_BOARD_STATE_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+    this.share = hudText(scene, {
+      x: TITLE_BOARD_STATE_X,
+      y: TITLE_SHARE_Y,
+      content: strings.TITLE_SHARE,
+      size: TITLE_SHARE_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+
     children.push(
       this.name,
       this.best,
       this.week,
+      this.boardHeading,
+      this.boardRows,
+      this.boardState,
+      this.share,
 
       // §14.8 — the other mode and the one key that begins it. Hollow, because
       // every *other* key begins the weekly vigil named above it.
@@ -236,6 +289,23 @@ export class TitleOverlay {
    */
   public showWeek(payload: WeekPayload): void {
     setTextIfChanged(this.week, weekReadout(payload));
+  }
+
+  public showLeaderboard(payload: LeaderboardPayload): void {
+    if (!payload.visible) {
+      setTextIfChanged(this.boardHeading, '');
+      setTextIfChanged(this.boardRows, '');
+      setTextIfChanged(this.boardState, '');
+      return;
+    }
+
+    setTextIfChanged(this.boardHeading, strings.leaderboardHeading(payload.scope));
+    setTextIfChanged(this.boardRows, leaderboardReadout(payload));
+    setTextIfChanged(this.boardState, strings.leaderboardStateLine(payload.status, payload.scope));
+  }
+
+  public showShare(payload: SharePayload): void {
+    setTextIfChanged(this.share, `${strings.TITLE_SHARE}\n${payload.line}\n${strings.shareStatusLine(payload.status)}`);
   }
 
   public hide(): void {

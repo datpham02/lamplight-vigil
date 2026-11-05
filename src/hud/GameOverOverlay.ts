@@ -30,9 +30,20 @@ import {
   GAME_OVER_MARK_RADIUS,
   GAME_OVER_PROMPT_SIZE,
   GAME_OVER_PROMPT_Y,
+  GAME_OVER_BOARD_HEADING_SIZE,
+  GAME_OVER_BOARD_HEADING_X,
+  GAME_OVER_BOARD_HEADING_Y,
+  GAME_OVER_BOARD_ROWS_SIZE,
+  GAME_OVER_BOARD_ROWS_X,
+  GAME_OVER_BOARD_ROWS_Y,
+  GAME_OVER_BOARD_STATE_SIZE,
+  GAME_OVER_BOARD_STATE_X,
+  GAME_OVER_BOARD_STATE_Y,
   GAME_OVER_SCORE_LABEL_Y,
   GAME_OVER_SCORE_SIZE,
   GAME_OVER_SCORE_VALUE_Y,
+  GAME_OVER_SHARE_SIZE,
+  GAME_OVER_SHARE_Y,
   GAME_OVER_SCRIM_ALPHA,
   GAME_OVER_STATS_SIZE,
   GAME_OVER_STATS_Y,
@@ -45,9 +56,14 @@ import {
   OVERLAY_DEPTH,
   RENDER_WIDTH,
 } from '../config/index';
-import type { PointPayload, RunStatePayload } from '../scenes/events';
+import type {
+  LeaderboardPayload,
+  PointPayload,
+  RunStatePayload,
+  SharePayload,
+} from '../scenes/events';
 import { formatCount, formatRunTime } from './layout';
-import { weekReadout } from './readouts';
+import { leaderboardReadout, weekReadout } from './readouts';
 import { scrim } from './scrim';
 import * as strings from './strings';
 import { hudText, setTextIfChanged } from './text';
@@ -68,8 +84,12 @@ export class GameOverOverlay {
    * resolves no week at all.
    */
   private readonly week: Phaser.GameObjects.Text;
+  private readonly boardHeading: Phaser.GameObjects.Text;
+  private readonly boardRows: Phaser.GameObjects.Text;
+  private readonly boardState: Phaser.GameObjects.Text;
+  private readonly share: Phaser.GameObjects.Text;
 
-  public constructor(scene: Phaser.Scene) {
+  public constructor(scene: Phaser.Scene, onShareRequested: () => void) {
     this.mark = scene.add.graphics();
 
     this.score = hudText(scene, {
@@ -106,6 +126,41 @@ export class GameOverOverlay {
       align: 'center',
       mono: true,
     });
+    this.boardHeading = hudText(scene, {
+      x: GAME_OVER_BOARD_HEADING_X,
+      y: GAME_OVER_BOARD_HEADING_Y,
+      content: '',
+      size: GAME_OVER_BOARD_HEADING_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+    this.boardRows = hudText(scene, {
+      x: GAME_OVER_BOARD_ROWS_X,
+      y: GAME_OVER_BOARD_ROWS_Y,
+      content: '',
+      size: GAME_OVER_BOARD_ROWS_SIZE,
+      color: HUD_TEXT_PRIMARY,
+      align: 'left',
+      mono: true,
+    });
+    this.boardState = hudText(scene, {
+      x: GAME_OVER_BOARD_STATE_X,
+      y: GAME_OVER_BOARD_STATE_Y,
+      content: '',
+      size: GAME_OVER_BOARD_STATE_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+    this.share = hudText(scene, {
+      x: GAME_OVER_BOARD_STATE_X,
+      y: GAME_OVER_SHARE_Y,
+      content: strings.GAME_OVER_SHARE,
+      size: GAME_OVER_SHARE_SIZE,
+      color: HUD_TEXT_DIM,
+      align: 'left',
+    });
+    this.share.setInteractive({ useHandCursor: true });
+    this.share.on(Phaser.Input.Events.POINTER_DOWN, onShareRequested);
 
     this.container = scene.add.container(0, 0, [
       scrim(scene, GAME_OVER_SCRIM_ALPHA),
@@ -133,6 +188,10 @@ export class GameOverOverlay {
       this.stats,
       this.week,
       this.best,
+      this.boardHeading,
+      this.boardRows,
+      this.boardState,
+      this.share,
       hudText(scene, {
         x: CENTER_X,
         y: GAME_OVER_PROMPT_Y,
@@ -187,6 +246,26 @@ export class GameOverOverlay {
 
   public hide(): void {
     this.container.setVisible(false);
+  }
+
+  public showLeaderboard(payload: LeaderboardPayload): void {
+    if (!payload.visible) {
+      setTextIfChanged(this.boardHeading, '');
+      setTextIfChanged(this.boardRows, '');
+      setTextIfChanged(this.boardState, '');
+      return;
+    }
+
+    setTextIfChanged(this.boardHeading, strings.leaderboardHeading(payload.scope));
+    setTextIfChanged(this.boardRows, leaderboardReadout(payload));
+    setTextIfChanged(this.boardState, strings.leaderboardStateLine(payload.status, payload.scope));
+  }
+
+  public showShare(payload: SharePayload): void {
+    setTextIfChanged(
+      this.share,
+      `${strings.GAME_OVER_SHARE}\n${payload.line}\n${strings.shareStatusLine(payload.status)}`,
+    );
   }
 
   /** A thin ring around the point of contact. No tween, no fade, no delay. */
