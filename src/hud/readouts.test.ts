@@ -18,10 +18,17 @@ import { WEEKLY_MODIFIERS, weeklyCells } from '../config/weeklyModifiers';
 // Past the barrel, which re-exports a Phaser-importing renderer this test
 // cannot load. Same reason `src/enemies/CrawlerField.test.ts` does it.
 import { CrawlerField, spawnInterval, type BeamLight } from '../enemies/CrawlerField';
-import { RUN_MODE, type ScorePayload, type WeekPayload } from '../scenes/events';
+import {
+  LEADERBOARD_SCOPE,
+  LEADERBOARD_STATUS,
+  RUN_MODE,
+  type LeaderboardPayload,
+  type ScorePayload,
+  type WeekPayload,
+} from '../scenes/events';
 import { resolveWeekAt } from '../weekly/index';
 import { formatSeconds } from './layout';
-import { scoreReadouts, weekReadout } from './readouts';
+import { leaderboardReadout, scoreReadouts, shareLineReadout, weekReadout } from './readouts';
 import * as strings from './strings';
 
 /** A beam that lights nothing, so crawlers only ever walk. */
@@ -332,5 +339,50 @@ describe('the mode on the game-over screen (§14.8)', () => {
   it('calls each mode what the title screen called it', () => {
     assert.ok(strings.TITLE_PROMPT.includes(strings.MODE_WEEKLY), 'the prompt names what it begins');
     assert.ok(strings.TITLE_FREE_PLAY.includes(strings.MODE_FREE_PLAY));
+  });
+});
+
+function boardPayload(overrides: Partial<LeaderboardPayload> = {}): LeaderboardPayload {
+  return {
+    visible: true,
+    weekKey: '2026-W45',
+    scope: LEADERBOARD_SCOPE.DEVICE,
+    status: LEADERBOARD_STATUS.SHOWN,
+    rows: [],
+    playerRow: null,
+    ...overrides,
+  };
+}
+
+describe('weekly board readout', () => {
+  it('shows the top rows and an out-of-top own row', () => {
+    const text = leaderboardReadout(
+      boardPayload({
+        rows: [
+          { rank: 1, displayName: 'A', score: 900, isPlayer: false },
+          { rank: 2, displayName: 'B', score: 850, isPlayer: false },
+        ],
+        playerRow: { rank: 7, displayName: 'Lampkeeper', score: 400, isPlayer: true },
+      }),
+    );
+
+    assert.ok(text.includes('#01 A 900'));
+    assert.ok(text.includes('#02 B 850'));
+    assert.ok(text.includes('YOU #07 Lampkeeper 400'));
+  });
+
+  it('returns an empty row block when there are no scores yet', () => {
+    assert.equal(leaderboardReadout(boardPayload()), '');
+  });
+});
+
+describe('share line readout', () => {
+  it('contains only mode, week, score and display name', () => {
+    const weekly = shareLineReadout(RUN_MODE.WEEKLY, '2026-W45', 1234, 'Lampkeeper');
+    const free = shareLineReadout(RUN_MODE.FREE_PLAY, null, 12, 'Lampkeeper');
+
+    assert.equal(weekly, 'WEEKLY · 2026-W45 · SCORE 1 234 · Lampkeeper');
+    assert.equal(free, 'FREE PLAY · NO WEEK · SCORE 12 · Lampkeeper');
+    assert.ok(!/https?:\/\//u.test(weekly), 'share line carries no URL');
   });
 });

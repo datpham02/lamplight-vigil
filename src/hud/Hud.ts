@@ -16,11 +16,13 @@ import {
   type BeamState,
   type BeamStatePayload,
   type DisplayNamePayload,
+  type LeaderboardPayload,
   type PausePayload,
   type PointPayload,
   type PowerPayload,
   type RunStatePayload,
   type ScorePayload,
+  type SharePayload,
   type WeekPayload,
 } from '../scenes/events';
 import { GameOverOverlay } from './GameOverOverlay';
@@ -71,13 +73,17 @@ export class Hud {
     this.scene = scene;
     this.play = new PlayHud(scene);
     this.title = new TitleOverlay(scene);
-    this.gameOver = new GameOverOverlay(scene);
+    this.gameOver = new GameOverOverlay(scene, () => {
+      this.scene.events.emit(VIGIL_EVENTS.SHARE_REQUESTED);
+    });
     this.nameEditor = new NameEditorOverlay(scene);
     this.pause = new PauseOverlay(scene);
 
     scene.events.on(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
     scene.events.on(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
     scene.events.on(VIGIL_EVENTS.WEEK_CHANGED, this.onWeek, this);
+    scene.events.on(VIGIL_EVENTS.LEADERBOARD_CHANGED, this.onLeaderboard, this);
+    scene.events.on(VIGIL_EVENTS.SHARE_CHANGED, this.onShare, this);
     scene.events.on(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     scene.events.on(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     scene.events.on(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);
@@ -139,6 +145,16 @@ export class Hud {
     this.title.showWeek(payload);
   }
 
+  private onLeaderboard(payload: LeaderboardPayload): void {
+    this.title.showLeaderboard(payload);
+    this.gameOver.showLeaderboard(payload);
+  }
+
+  private onShare(payload: SharePayload): void {
+    this.title.showShare(payload);
+    this.gameOver.showShare(payload);
+  }
+
   /** §2.5 — the run is suspended, or is not any more. */
   private onPause(payload: PausePayload): void {
     this.pause.setVisible(payload.paused);
@@ -171,6 +187,8 @@ export class Hud {
     events.off(VIGIL_EVENTS.RUN_STATE_CHANGED, this.onRunState, this);
     events.off(VIGIL_EVENTS.DISPLAY_NAME_CHANGED, this.onDisplayName, this);
     events.off(VIGIL_EVENTS.WEEK_CHANGED, this.onWeek, this);
+    events.off(VIGIL_EVENTS.LEADERBOARD_CHANGED, this.onLeaderboard, this);
+    events.off(VIGIL_EVENTS.SHARE_CHANGED, this.onShare, this);
     events.off(VIGIL_EVENTS.PAUSE_CHANGED, this.onPause, this);
     events.off(VIGIL_EVENTS.POWER_CHANGED, this.onPower, this);
     events.off(VIGIL_EVENTS.SCORE_CHANGED, this.onScore, this);

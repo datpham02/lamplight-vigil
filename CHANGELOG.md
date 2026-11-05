@@ -5,6 +5,21 @@ All notable changes to Lamplight Vigil are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Weekly board panels on title and game-over screens, sourced through the
+  platform adapter and labelled with explicit board state (`loading`, `shown`,
+  `unavailable`, `last known`). The local fallback is labelled as this device's
+  board, and no board appears in PLAYING or Free Play game-over.
+- Share-line support on title and game-over: one key press (and one click on
+  game-over) copies plain text with mode, week, score and display name only; if
+  clipboard write is unavailable, a manual copy prompt is shown instead.
+- Weekly-board controller tests covering hanging and rejecting leaderboard
+  promises, plus cached-last-known behaviour and out-of-top own-rank display.
+  
+
 ## [0.1.0] - 2026-11-04
 
 First release. The "Playable Vigil" milestone: a build a stranger can clone, run,
@@ -102,4 +117,5 @@ play, lose and restart.
 [#8]: https://github.com/datpham02/lamplight-vigil/pull/8
 [#9]: https://github.com/datpham02/lamplight-vigil/pull/9
 [#10]: https://github.com/datpham02/lamplight-vigil/pull/10
+[unreleased]: https://github.com/datpham02/lamplight-vigil/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/datpham02/lamplight-vigil/releases/tag/v0.1.0
