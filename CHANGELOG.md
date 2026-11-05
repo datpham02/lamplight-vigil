@@ -5,6 +5,15 @@ All notable changes to Lamplight Vigil are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Recorded the Board's D4 decision of 2026-11-05 — the backend is the website's
+  Laravel + MySQL application, reached only through the platform adapter, with
+  hosting still pending — in `docs/vision.md` §5b and `docs/design.md`, and
+  added `docs/platform-contract.md` holding Game Platform Contract v1.
+
 ## [0.1.0] - 2026-11-04
 
 First release. The "Playable Vigil" milestone: a build a stranger can clone, run,
